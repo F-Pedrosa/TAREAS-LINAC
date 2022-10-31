@@ -1,0 +1,190 @@
+; Código de prueba para el 1er esclavo 18f4620 en una ME recibiendo datos por la línea de 12 Vdc
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+include delay
+
+; Interfaz serial por hardware
+const serial_hw_baudrate = 57_600
+include serial_hardware
+serial_hw_init()
+
+
+alias pin_datos is pin_b6
+pin_b6_direction = input
+
+
+alias zumbador is pin_d4
+pin_d4_direction = output
+
+alias led_rojo is pin_c1
+pin_c1_direction = output
+
+var byte contador = 0
+var byte byte_entrante = 0
+var bit finalizado = false
+var byte indice = 7
+var bit bit_entrante = 0
+
+var byte digi0 = 0
+var byte digi1 = 0
+var byte digi2 = 0
+
+var byte arreglo_entrante[8] = {0,0,0,0,0,0,0,0}
+var byte i = 0
+
+
+; -------------------------------------------------------------------------------------
+; byte a 3 caracteres
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure armar_byte(byte out holder) is
+
+   var bit bit0 at holder : 0   -- get the bits out of the byte
+   var bit bit1 at holder : 1
+   var bit bit2 at holder : 2
+   var bit bit3 at holder : 3
+   var bit bit4 at holder : 4
+   var bit bit5 at holder : 5
+   var bit bit6 at holder : 6
+   var bit bit7 at holder : 7
+
+   if arreglo_entrante[7] == 1 then
+      bit0 = true
+   else
+      bit0 = false
+   end if
+   if arreglo_entrante[6] == 1 then
+      bit1 = true
+   else
+      bit1 = false
+   end if
+   if arreglo_entrante[5] == 1 then
+      bit2 = true
+   else
+      bit2 = false
+   end if
+   if arreglo_entrante[4] == 1 then
+      bit3 = true
+   else
+      bit3 = false
+   end if
+   if arreglo_entrante[3] == 1 then
+      bit4 = true
+   else
+      bit4 = false
+   end if
+   if arreglo_entrante[2] == 1 then
+      bit5 = true
+   else
+      bit5 = false
+   end if
+   if arreglo_entrante[1] == 1 then
+      bit6 = true
+   else
+      bit6 = false
+   end if
+   if arreglo_entrante[0] == 1 then
+      bit7 = true
+   else
+      bit7 = false
+   end if
+end procedure
+
+; ==========================================================================================================================
+
+led_rojo = on
+zumbador = on
+delay_100ms(1)
+led_rojo = off
+zumbador = off
+
+serial_hw_write("o")
+serial_hw_write("k")
+serial_hw_write(10)
+serial_hw_write(13)
+
+
+
+indice = 0
+
+forever loop
+   ; si el pin se puso a 1, llega pulso
+   if pin_datos == true then
+     ; contar tiempo de pulso
+     while pin_datos loop
+;         delay_10us(20)
+         delay_10us(10)
+         contador = contador + 1
+     end loop
+     if ( contador >= 5 ) & ( contador <= 35 ) then
+        ; pulso corto
+        contador = 0
+        bit_entrante = true
+;        serial_hw_write("1")
+        arreglo_entrante[indice] = 1
+        indice = indice + 1
+     elsif ( contador >= 30 ) & ( contador <= 50 ) then
+        ; pulso largo
+        contador = 0
+        bit_entrante = false
+;        serial_hw_write("0")
+        arreglo_entrante[indice] = 0
+        indice = indice + 1
+     elsif ( contador >= 65 ) & ( contador <= 110 ) then
+        ; marca final
+        contador = 0
+        finalizado = true
+        indice = 0
+;        serial_hw_write(10)
+;        serial_hw_write(13)
+     else
+        contador = 0
+     end if
+
+   end if
+
+   if finalizado then
+      finalizado = false
+      armar_byte(byte_entrante)
+      if (byte_entrante % 2) == 0 then
+         zumbador = on
+         delay_1ms(30)
+         zumbador = off
+      end if
+      byte_entrante = 0
+
+   end if
+
+end loop
+
+

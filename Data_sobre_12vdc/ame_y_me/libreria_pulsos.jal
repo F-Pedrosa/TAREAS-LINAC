@@ -1,0 +1,110 @@
+; Librería para incluir todo lo relacionado con la codificación y transmisión de byte sobe línea de 12 Vdc
+
+; con esto teníamos 10 bytes por segundo
+;procedure corto is
+;   pwm1_on
+;   delay_1ms(5)
+;   pwm1_off
+;end procedure
+;
+;procedure largo is
+;   pwm1_on
+;   delay_1ms(10)
+;   pwm1_off
+;end procedure
+;
+;procedure espacio is
+;   pwm1_off
+;   delay_1ms(5)
+;end procedure
+;
+;procedure final is
+;   pwm1_on
+;   delay_1ms(20)
+;   pwm1_off
+;end procedure
+
+
+
+
+; con esto teníamos 20 bytes por segundo
+procedure corto is
+   pwm1_on
+   delay_1ms(2)
+   pwm1_off
+end procedure
+
+procedure largo is
+   pwm1_on
+   delay_1ms(5)
+   pwm1_off
+end procedure
+
+procedure espacio is
+   pwm1_off
+   delay_1ms(5)
+end procedure
+
+procedure final is
+   pwm1_on
+   delay_1ms(10)
+   pwm1_off
+end procedure
+
+
+; con esto teníamos 30 bytes por segundo
+;procedure corto is
+;   pwm1_on
+;   delay_1ms(1)
+;   pwm1_off
+;end procedure
+;
+;procedure largo is
+;   pwm1_on
+;   delay_1ms(2)
+;   pwm1_off
+;end procedure
+;
+;procedure espacio is
+;   pwm1_off
+;   delay_1ms(2)
+;end procedure
+;
+;procedure final is
+;   pwm1_on
+;   delay_1ms(4)
+;   pwm1_off
+;end procedure
+
+
+
+;procedure corto is
+;   pwm1_on
+;   delay_10us(50)
+;   pwm1_off
+;end procedure
+;
+;procedure largo is
+;   pwm1_on
+;   delay_1ms(1)
+;   pwm1_off
+;end procedure
+;
+;procedure espacio is
+;   pwm1_off
+;   delay_1ms(5)
+;end procedure
+;
+;procedure final is
+;   pwm1_on
+;   delay_1ms(2)
+;   pwm1_off
+;end procedure
+
+
+
+
+
+
+
+

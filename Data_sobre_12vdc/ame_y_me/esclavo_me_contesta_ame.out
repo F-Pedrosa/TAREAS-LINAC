@@ -1,0 +1,15 @@
+jal jalv24q2 (compiled Jan 23 2014)
+
+generating p-code
+894 tokens, 119865 chars; 2773 lines; 4 files
+generating PIC code pass 1
+generating PIC code pass 2
+0 data accesses checked, 0 errors
+48 skips checked, 0 errors
+writing result
+Code area: 674 of 65536 used (bytes)
+Data area: 34 of 3968 used
+Software stack available: 3930 bytes
+Hardware stack depth 1 of 31
+0 errors, 0 warnings
+

@@ -1,0 +1,132 @@
+; Código de prueba para el master 16F628 a comunicarse con dos esclavos por la línea de 12 Vdc
+include 16f628a                   -- target PICmicro
+-- This program uses xtal oscillator
+pragma target clock  20_000_000
+-- configuration memory settings (fuses)
+pragma target OSC      HS                        -- crystal or resonator
+pragma target WDT      DISABLED                  -- watchdog
+pragma target BROWNOUT DISABLED                  -- brownout reset
+pragma target LVP      DISABLED                  -- low voltage programming
+pragma target MCLR     INTERNAL                  --
+--
+asm clrf porta
+enable_digital_io()                -- disable analog I/O (if any)
+include delay
+
+include pwm_hardware
+include libreria_pulsos
+
+procedure mandar_byte(byte in dato) is
+   var bit bit0 at dato : 0
+   var bit bit1 at dato : 1
+   var bit bit2 at dato : 2
+   var bit bit3 at dato : 3
+   var bit bit4 at dato : 4
+   var bit bit5 at dato : 5
+   var bit bit6 at dato : 6
+   var bit bit7 at dato : 7
+   
+   if bit7 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit6 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit5 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit4 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit3 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit2 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit1 == 1 then
+      corto
+   else
+      largo
+   end if
+   espacio
+   if bit0 == 1 then
+      corto
+   else
+      largo
+   end if
+   final
+end procedure
+
+
+; -------------------------------------------------------------------------------------------------
+pwm_set_frequency(300_000)
+pwm1_set_dutycycle_percent(50)
+
+alias led_rojo is pin_b4
+pin_b4_direction =  output
+
+alias salida_pwm is pin_b3
+pin_b3_direction =  output
+
+; ======================================================================================================================
+salida_pwm = off
+; testigo de funcionamiento
+led_rojo = on
+delay_100ms(60)
+led_rojo = off
+
+
+pwm1_on
+
+forever loop
+
+;      ; mandamos 8 pulsos (que deberían armar un byte)
+      corto           ; 1
+      espacio
+      largo           ; 0
+      espacio
+      corto           ; 1
+      espacio
+      largo           ; 0
+      espacio
+      corto           ; 1
+      espacio
+      largo           ; 0
+      espacio
+      corto           ; 1
+      espacio
+      largo           ; 0
+      espacio
+      final
+
+;
+;;      mandar_byte(0b10101010)
+;
+
+;pwm1_on
+;      delay_100ms(5)                    ; cada 1/2 segundo...
+;pwm1_off
+
+      delay_100ms(5)                    ; cada 1/2 segundo...
+end loop
+
+
