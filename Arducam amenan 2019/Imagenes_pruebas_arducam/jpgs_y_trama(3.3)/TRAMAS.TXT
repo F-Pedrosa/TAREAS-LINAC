@@ -1,0 +1,27 @@
+Encabezado archivo cuenta evento pines y sensor
+INDICE   FECHA      HORA   TEMP       HUM%   PULSADOS
+0 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.10% - 0
+1 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.60% - 0
+2 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.60% - 0
+3 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.40% - 0
+4 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.40% - 0
+5 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.50% - 0
+6 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.50% - 0
+7 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.50% - 0
+8 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.50% - 0
+9 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.50% - 0
+10 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.60% - 0
+11 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.70% - 0
+12 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.50% - 0
+13 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.80% - 0
+14 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.70% - 0
+15 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.70% - 0
+16 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.70% - 0
+17 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.80% - 0
+18 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.90% - 0
+19 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.80% - 0
+20 - AA/MM/DD - HH:MM:SS - 16.10 ºC - 49.70% - 0
+21 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.90% - 0
+22 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.90% - 0
+23 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.90% - 0
+24 - AA/MM/DD - HH:MM:SS - 16.20 ºC - 49.90% - 0
