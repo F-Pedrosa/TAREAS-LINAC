@@ -1,0 +1,383 @@
+; Este es el firmware de prueba de la AME214MT, que incluye un transceptor, tarjeta SD, módulo SIM900,
+; sensores de humedad/temperatura/presión, RTC, conexión display LCD...
+include 18f4620
+
+pragma target clock 20_000_000
+
+pragma target PWRTE  enabled          ; power up timer enabled
+
+pragma target OSC      HS                        -- crystal or resonator
+pragma target WDT      CONTROl                   -- watchdog
+pragma target XINST    DISABLED                  -- extended instruction set
+pragma target DEBUG    DISABLED                  -- debugging
+pragma target BROWNOUT DISABLED                  -- brownout reset
+pragma target FCMEN    DISABLED                  -- clock monitoring
+pragma target IESO     DISABLED                  -- int/ext osc. switch
+pragma target LVP      DISABLED                  -- low voltage programming
+pragma target MCLR     INTERNAL                  -- E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 -- disable WDT
+OSCCON_SCS = 0                      -- select primary oscillator
+OSCTUNE_PLLEN = FALSE               -- no PLL
+
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+; para mandar info a la PC serialmente
+alias serial_sw_tx_pin     is  pin_d1
+alias serial_sw_rx_pin     is  pin_d0
+pin_d1_direction = output
+pin_d0_direction = input
+const serial_sw_baudrate = 115_200
+include serial_software
+serial_sw_init()
+
+include delay
+
+; Seteos para el LCD
+const byte LCD_ROWS     = 2              ; 2 líneas
+const byte LCD_CHARS    = 16             ; 16 chars por línea
+var   bit  lcd_rs        is  pin_b3      ; selección cmd/data
+var   bit  lcd_en        is  pin_b2      ; trigger
+var   byte lcd_dataport is portb_high  ; 4 high order data pins
+portb_high_direction = all_output
+include lcd_hd44780_4
+
+; librería para facilitar el mostrado de números en el LCD
+include print
+
+; Protocolo I2C implementado por software, para comunicarse con el RTC
+alias i2c_scl            is pin_d2
+alias i2c_scl_direction  is pin_d2_direction
+alias i2c_sda            is pin_d3
+alias i2c_sda_direction  is pin_d3_direction
+const word _i2c_bus_speed = 1 ; * 100kHz
+include i2c_software
+i2c_initialize()
+
+
+; Definiciones para el bus dallas one-wire, que es el protocolo del sensor de temperatura Ds1820
+alias d1w_bus            is pin_a4
+alias d1w_bus_direction  is pin_a4_direction
+include one_wire
+d1w_init()               ; inicializar bus one-wire
+
+; seleccionar temperatura en formato Celsius
+const ds18b20_value_raw          = 0
+const ds18b20_value_celcius      = 1
+const ds18b20_value_farenheit    = 0
+
+const ds18b20_ignore_crc         = 0 ; 1 tell lib to ignore crc (code becomes smaller and faster, but reliability of data is less)
+const ds18b20_max_retries        = 1 ; 1 means the library re-reads once when crc fails, 4 means up to 4 retries (so max 5 reads)
+
+; incluir la libreria para el sensor ds18b20 de temperatura
+include ds18b20
+
+;const byte ADC_NVREF = ADC_NO_EXT_VREF
+;const word ADC_RSOURCE = 10_000
+;const bit ADC_HIGH_RESOLUTION = high
+;const byte ADC_NCHANNEL = 4
+;include adc
+;adc_init()
+;;set_analog_pin(3)
+
+
+; setup spi e inclusión librería spi (el hardware para comunicarse con la SD)
+include spi_master_hw
+spi_init(SPI_MODE_11,SPI_RATE_FOSC_4)
+; definir entradas/salidas spi (no hay mucha alternativa, las fija el hard, excepto a ChipSelect)
+pin_sdi_direction = input    ; entrada datos spi
+pin_sdo_direction = output   ; salida datos spi
+pin_sck_direction = output   ; clock spi (salida)
+; spi chip select pin
+ALIAS chip_select_direction   is pin_d5_direction
+ALIAS chip_select             is pin_d5
+chip_select_direction = output    ; pin chip select como salida
+chip_select = low                 ; arrancar con chip slect en 0
+; incluir librería sd card
+include sd_card
+sd_init()       ; inicializar la tarjeta sd
+
+
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+alias zumbador is pin_e2
+pin_e2_direction = output
+
+
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+
+var word direccion = 0
+
+var sword temperatura = 0
+
+
+var byte digi0 = 0
+var byte digi1 = 0
+var byte digi2 = 0
+var byte digi3 = 0
+
+; byte a 3 caracteres
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+; word a 4 caracteres/dígitos
+procedure word2digits( byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var word miles = 0
+   var byte centena = 0
+   var byte decena = 0
+
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = byte(numero / 100)
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+
+; Este procedimiento reemplaza al lcd_init de la librería porque en las
+; pruebas con la PPA3 se encontraron fallas en aquel. Y este anduvo.
+procedure inicializar_lcd() is
+   lcd_en = low
+   delay_1ms(40)
+   _lcd_write_command(0b_0011_1000)             ; hexa 38
+   delay_10us(4)
+   _lcd_write_command(0b_0000_1100)             ; sin cursor ni parpadeo
+   delay_10us(4)
+   _lcd_write_command(0b_0000_0110)             ; hexa 6
+   delay_10us(4)
+   _lcd_write_command(0b_0000_0001)             ; clear display
+   delay_10us( 180 )
+   _lcd_write_command(0b_0000_0010)             ; return home
+   delay_10us(4)
+end procedure
+
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+   ;------------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+end procedure
+
+procedure transceptor is
+
+end procedure
+
+; para comunicarse con el BM180
+procedure leer_presion is
+
+end procedure
+
+; se asume sensor de temperatura DS18B20
+function leer_temperatura return sword is
+   var bit r
+   var sword temp
+   ds18b20_convert()
+   r = ds18b20_s_temp(temp)
+   return temp
+end function
+
+pin_d4_direction = output
+alias rele1 is pin_d4
+pin_b6_direction = output
+alias rele2 is pin_d4
+
+var word humedad = 0
+
+var byte tempe[4] at temperatura
+
+; =======================================PRINCIPAL=========================================
+rele1 = off
+rele2 = off
+
+testigo = on
+zumbador = on
+delay_100ms(10)
+testigo = off
+zumbador = off
+delay_100ms(10)
+
+;inicializar_lcd
+;lcd_write_char("O")
+;lcd_write_char("K")
+;delay_100ms(20)
+;lcd_clear_screen
+
+serial_sw_write("O")
+serial_sw_write("K")
+serial_sw_write(" ")
+serial_sw_write(" ")
+obtener_fecha_hora
+bin2digits(digi2,digi1,digi0,anio)
+serial_sw_write(digi1+48)
+serial_sw_write(digi0+48)
+serial_sw_write("/")
+bin2digits(digi2,digi1,digi0,mes)
+serial_sw_write(digi1+48)
+serial_sw_write(digi0+48)
+serial_sw_write("/")
+bin2digits(digi2,digi1,digi0,dia)
+serial_sw_write(digi1+48)
+serial_sw_write(digi0+48)
+serial_sw_write(" ")
+bin2digits(digi2,digi1,digi0,hora)
+serial_sw_write(digi1+48)
+serial_sw_write(digi0+48)
+serial_sw_write(":")
+bin2digits(digi2,digi1,digi0,minuto)
+serial_sw_write(digi1+48)
+serial_sw_write(digi0+48)
+serial_sw_write(":")
+bin2digits(digi2,digi1,digi0,segundo)
+serial_sw_write(digi1+48)
+serial_sw_write(digi0+48)
+serial_sw_write(13)
+serial_sw_write(10)
+
+delay_100ms(10)
+
+
+var byte sd0 = 0
+var byte sd1 = 0
+
+sd_start_read(0)         ; actualizar sector donde queda el dato del último sector escrito
+sd_read_data(sd1,sd0)
+serial_sw_write(sd1)
+serial_sw_write(sd0)
+sd_stop_read()
+
+; ==========================================================================================================================
+
+
+forever loop
+
+; poner en LCD la lectura del sensor de temp
+temperatura = leer_temperatura
+;print_sword_dec(lcd, temperatura)
+serial_sw_write(13)
+serial_sw_write(10)
+;print_sword_dec(serial_sw_data, temperatura)
+word2digits(digi3,digi2,digi1,digi0,temperatura)
+serial_sw_write("T")
+serial_sw_write(":")
+if (tempe[0] & 0b10000000 ) == 1 then
+   serial_sw_write("-")
+end if
+digi3 = digi3 & 0b01111111
+serial_sw_write(digi3+48)
+serial_sw_write(digi2+48)
+serial_sw_write(digi1+48)
+serial_sw_write(".")
+serial_sw_write(digi0+48)
+serial_sw_write("C")
+
+
+;testigo = on
+;delay_1ms(5)
+;testigo = off
+;delay_1ms(5)
+
+
+; poner en LCD la lectura del sensor de humedad
+
+delay_100ms(20)                     ; cada 2 segs
+; manda x serial a pc
+;word2digits(digi3,digi2,digi1,digi0,humedad)
+;serial_sw_write(13)
+;serial_sw_write(10)
+;serial_sw_write("H")
+;serial_sw_write("%")
+;serial_sw_write(" ")
+;serial_sw_write(digi3+48)
+;serial_sw_write(digi2+48)
+;serial_sw_write(digi1+48)
+;serial_sw_write(digi0+48)
+;serial_sw_write(13)
+;serial_sw_write(10)
+
+
+
+; poner en LCD la lectura del sensor de presión
+
+end loop
+
+
