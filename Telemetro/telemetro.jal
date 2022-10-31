@@ -1,0 +1,468 @@
+; Firm para una AME2 con 16F877, para medir distancias usando el sensor comercial
+; este firm apunta a usar el display LCD serial ya que el conector que antes se usaba
+; para el display ahora se usa para conectar con la electrónica que está dentro del
+; gabinete del medidor comercial.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+; Para comunicaciones seriales x hardware (la que va hacia el display LCD)
+const serial_hw_baudrate = 9_600
+include serial_hardware
+serial_hw_init()
+
+include delay
+
+; librería para poder leer y escribir de la eeprom INTERNA del PIC
+include pic_data_eeprom
+
+
+; I2C pines
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; constantes
+const word _i2c_bus_speed = 1 ; * 100kHz
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+
+alias control_laser is pin_b3
+pin_b3_direction = output
+
+alias deteccion is pin_b5
+pin_b5_direction = input
+
+; definir direccion pin PWM
+pin_ccp1_direction = output
+include pwm_hardware
+; activar PWM
+pwm1_on()
+
+alias testigo is pin_b7
+pin_b7_direction= output
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+
+var byte digi4 = 0
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+var word direccion = 0
+var word valor_previo = 0
+var word contador = 0
+var word arreglo_mediciones[5]
+var word promedio = 0
+var word centimetros = 0
+
+;-----------------------------------------------------------
+; procedimientos para usar el display LCD serial
+procedure imprimir_lcd_serial(byte in caracter) is
+   ; Debe ir como ASCII para que aparezca en el display
+   serial_hw_write(caracter)
+end procedure
+
+procedure clear_screen_lcd_serial is
+   serial_hw_write(1)
+end procedure
+
+procedure cursor_home_lcd_serial is
+   serial_hw_write(2)
+end procedure
+
+procedure cursor_2_linea_lcd_serial is
+   serial_hw_write(3)
+end procedure
+;-----------------------------------------------------------
+
+function digi2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+procedure bin2digits( byte out digi2, byte out digi1, byte out digi0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   digi2 = centena
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = numero
+end procedure
+
+procedure word2digits( byte out digi4, byte out digi3, byte out digi2, byte out digi1, byte out digi0, word in numero ) is
+
+   var word dec_miles = 0
+   var word miles = 0
+   var word centena = 0
+   var byte decena = 0
+
+   dec_miles = numero/10000
+   digi4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   digi3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   digi2 = byte(centena)
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = byte(numero)
+
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+   ;------------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+end procedure
+
+
+procedure escribir_eeprom( byte in eepr_pos, word in address, byte in dato ) is
+; Rutina para escribir un byte en dirección determinada de una EEPROM en particular.
+   var byte AX[2] at address
+   var bit resul = false
+   ; primero, enviar el id de la EEPROM
+   ; su dirección específica y el bit de R/W.
+   I2C_start()
+   resul = i2c_transmit_byte(eepr_pos)
+   ; byte alto dirección
+   resul = i2c_transmit_byte(AX[1])
+   ; byte bajo dirección
+   resul = i2c_transmit_byte(AX[0])
+   ; Enviar dato a escribir
+   resul = i2c_transmit_byte(dato)
+   I2C_stop()
+   delay_1ms(6)   ; para darle tiempo a la EEPROM de escribir
+end procedure
+
+procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+   ; ATENCIÓN!!!!
+   ; Este procedimiento escribe la trama byte a byte Y NO POR PÁGINA!!!!
+   escribir_eeprom(eepr_pos,address,anio)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,mes)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,dia)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,hora)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,minuto)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,segundo)
+   address = address + 1
+   ; Convertir word adquirido a un formato de 3 dígitos
+   word2digits(digi4, digi3,digi2,digi1,digi0,centimetros)
+   ; grabar
+   escribir_eeprom(eepr_pos,address,digi2)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,digi1)
+   address = address + 1
+   escribir_eeprom(eepr_pos,address,digi0)
+   direccion = address + 1
+end procedure
+
+
+procedure medir is
+   var byte y = 0
+   var word total = 0
+
+   var byte cantidad
+
+   for count(arreglo_mediciones) using y loop
+      pwm1_on()
+      delay_10us(200)         ; ajustar duración del pulso?
+      pwm1_off()
+      ; valor para las pruebas exitosas 230!!!!!!!!!!!!!!!!!!!!!
+      delay_10us(230)         ; espacio de protección contra detección espúrea (no rebote), ajustado via scope
+      while deteccion != on loop
+         contador = contador + 1
+         delay_10us(2)
+   ;        ; mecanismo para salir del lazo si no se detecta pulso de retorno!!!!!!!!
+           if contador >= 10000 then
+              contador = 0
+              exit loop
+           end if
+      end loop
+      arreglo_mediciones[y] =  contador
+      delay_1ms(10)                            ; ATENCIÓN: 10 ms parece ser el mejor valor!!
+      contador = 0
+   end loop
+
+   y = 0
+   ; calcular promedio, redondear hacia arriba
+   cantidad = count(arreglo_mediciones)
+   for cantidad using y loop
+       total = total + arreglo_mediciones[y]
+   end loop
+   promedio = (total/cantidad)   ; recordar que la división es entera
+;    promedio = contador
+   contador = 0
+end procedure
+
+
+
+; ============================================== PRINCIPAL ==================================================
+
+; Bloque para detectar la conexión del lector de eeproms
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+; testigo de funcionamiento
+testigo = on
+delay_100ms(15)
+testigo = off
+
+; Seteos del hardware PWM, que es el que genera la señal de 40 KHz
+pwm_set_frequency(40_000)
+pwm1_set_percent_dutycycle(50)     ; el ciclo de trabajo fijado en 50%, debe recalcularse ante cada cambio de frec.
+pwm1_off()
+
+; reinicializar puntero de escritura en EEPROM
+direccion = data_eeprom_word(0)
+
+
+const byte msg_ok[] = "OK"
+var word valor_tabla = 0
+var word direcc = 0
+var byte dire[2] at direcc = {0,0}
+var byte valores[2] at valor_tabla = {0,0}
+var bit resul
+
+
+forever loop
+
+    ; invocar procedimiento que genera pulso de salida, mide el tiempo que tarda en retornar, calcula
+    ; el promedio de repetir 5 veces esta operación y devuelve dicho promedio
+    medir
+
+    ; limpiar display
+    clear_screen_lcd_serial
+
+   ; convertir valor promedio recién obtenido a su equivalente en cm usando tabla cargada en EEPROM externa
+   while promedio > valor_tabla loop
+      ; Comenzar comunicación I2C
+      i2c_start()
+      ; Dirección i2c de la eeprom, modo escritura (para indicar la direcciones internas)
+      ; apuntamos a la eeprom situada en el 2do zócalo.
+      resul = i2c_transmit_byte(0xA2)
+      ; Byte alto dirección a leer
+      resul = resul & i2c_transmit_byte(dire[1])
+      ; Byte bajo dirección a leer
+      resul = resul & i2c_transmit_byte(dire[0])
+      ; Necesario restart del bus
+      i2c_restart()
+      ; Dirección i2c de la eeprom, modo lectura (de la direcciones interna)
+      resul = resul & i2c_transmit_byte(0xA3)
+      ; cargar valor de tabla (2 bytes)
+      valores[1] = i2c_receive_byte(true)
+      valores[0] = i2c_receive_byte(false)
+      ; Terminar comunicación I2C
+      i2c_stop()
+      ; incrementar dirección a ser leída, recordar que leemos 2 bytes por vez (un word)
+      direcc = direcc + 2
+      ; para salir de lazo si superamos el tamaño de la tabla (tabla tiene 625 elementos, x 2 (son words) = 1250)
+      if direcc > 1260 then
+         exit loop
+      end if
+   end loop
+   i2c_stop()
+   centimetros = direcc/2 + 75          ; 75 cm es la mínima distancia que puede medirse
+   direcc = 0
+   valor_tabla = 0
+
+
+   ; mostrar el valor obtenido en cm, en display lcd
+   word2digits(digi4,digi3,digi2,digi1,digi0,centimetros)
+   serial_hw_write(digi3+48)
+   serial_hw_write(digi2+48)
+   serial_hw_write(".")
+   serial_hw_write(digi1+48)
+   serial_hw_write(digi0+48)
+
+   serial_hw_write(" ")
+   serial_hw_write("m")
+
+   ; si hay variación, grabar en eeprom 1 del banco
+   if (centimetros < (valor_previo - 2)) | (centimetros > (valor_previo + 2)) then
+      obtener_fecha_hora
+      escribir_trama_eeprom(0b1010_0000,direccion)
+      Data_EEprom_Write_word(0, direccion)  ; y guardar nuevo puntero de escritura
+      ; ------------------------
+      valor_previo = centimetros
+      if valor_previo == 0 then
+         valor_previo = 1
+      end if
+   end if
+
+
+   ; Bloques IF-THEN para considerar casos de sobre rango y sub rango
+   if direcc > 1260 then       ; si es mayor de esa cuenta es que está por fuera del rango, el valor 1260 equivale
+      ; a algo más de 7 m, donde ya no hay detección
+
+      ; En las pruebas, el máximo rango medido estaba en los 6 metros y el mínimo en 0,75 m
+
+      ; avisar x display
+      clear_screen_lcd_serial
+      serial_hw_write("S")
+      serial_hw_write("o")
+      serial_hw_write("b")
+      serial_hw_write("r")
+      serial_hw_write("e")
+      serial_hw_write(" ")
+      serial_hw_write("r")
+      serial_hw_write("a")
+      serial_hw_write("n")
+      serial_hw_write("g")
+      serial_hw_write("o")
+      ; bajar segunda línea
+      serial_hw_write(3)
+      serial_hw_write("m")
+      serial_hw_write("a")
+      serial_hw_write("s")
+      serial_hw_write(" ")
+      serial_hw_write("d")
+      serial_hw_write("e")
+      serial_hw_write(" ")
+      serial_hw_write("6")
+      serial_hw_write(".")
+      serial_hw_write("5")
+      serial_hw_write("m")
+   end if
+
+      ; avisar x display
+   if promedio < 11 then     ; estamos muy cerca, a menos de ~75 cm que es lo mínimo medible
+      clear_screen_lcd_serial
+      serial_hw_write("S")
+      serial_hw_write("u")
+      serial_hw_write("b")
+      serial_hw_write(" ")
+      serial_hw_write("r")
+      serial_hw_write("a")
+      serial_hw_write("n")
+      serial_hw_write("g")
+      serial_hw_write("o")
+      ; bajar segunda línea
+      serial_hw_write(3)
+      serial_hw_write("m")
+      serial_hw_write("e")
+      serial_hw_write("n")
+      serial_hw_write("o")
+      serial_hw_write("s")
+      serial_hw_write(" ")
+      serial_hw_write("d")
+      serial_hw_write("e")
+      serial_hw_write("7")
+      serial_hw_write("5")
+      serial_hw_write("c")
+      serial_hw_write("m")
+   end if
+
+   direcc = 0
+   delay_100ms(20)          ; medir la distancia cada 2 segundos
+
+end loop
+
