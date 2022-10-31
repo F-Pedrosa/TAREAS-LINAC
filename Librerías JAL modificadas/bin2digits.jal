@@ -1,0 +1,177 @@
+; --------------------------------------------------
+;      Bin2digit3(var bcd2..bcd0 , binar)
+;  convierte el número binario (0~255) en binar
+;  a 3 dígitos para ser mostrado en displays
+;
+;  bcd2:msd, bcd1:isd, bcd0:lsd, binar:b
+; --------------------------------------------------
+; msd = dígito más significativo
+; isd = dígito intermedio
+; lsd = dígito menos significativo
+; lsb = byte de entrada
+
+
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in binar ) is
+   if binar < 10 then
+      dig0 = binar
+      dig1 = 0
+      dig2 = 0
+      return
+   end if
+   if binar < 20 then
+      dig0 = binar - 10
+      dig1 = 1
+      dig2 = 0
+      return
+   end if
+   if binar < 30 then
+      dig0 = binar - 20
+      dig1 = 2
+      dig2 = 0
+      return
+   end if
+   if binar < 40 then
+      dig0 = binar - 30
+      dig1 = 3
+      dig2 = 0
+      return
+   end if
+   if binar < 50 then
+      dig0 = binar - 40
+      dig1 = 4
+      dig2 = 0
+      return
+   end if
+   if binar < 60 then
+      dig0 = binar - 50
+      dig1 = 5
+      dig2 = 0
+      return
+   end if
+   if binar < 70 then
+      dig0 = binar - 60
+      dig1 = 6
+      dig2 = 0
+      return
+   end if
+   if binar < 80 then
+      dig0 = binar - 70
+      dig1 = 7
+      dig2 = 0
+      return
+   end if
+   if binar < 90 then
+      dig0 = binar - 80
+      dig1 = 8
+      dig2 = 0
+      return
+   end if
+   if binar < 100 then
+      dig0 = binar - 90
+      dig1 = 9
+      dig2 = 0
+      return
+   end if
+   if binar < 110 then
+      dig0 = binar - 100
+      dig1 = 0
+      dig2 = 1
+      return
+   end if
+   if binar < 120 then
+      dig0 = binar - 110
+      dig1 = 1
+      dig2 = 1
+      return
+   end if
+   if binar < 130 then
+      dig0 = binar - 120
+      dig1 = 2
+      dig2 = 1
+      return
+   end if
+   if binar < 140 then
+      dig0 = binar - 130
+      dig1 = 3
+      dig2 = 1
+      return
+   end if
+   if binar < 150 then
+      dig0 = binar - 140
+      dig1 = 4
+      dig2 = 1
+      return
+   end if
+   if binar < 160 then
+      dig0 = binar - 150
+      dig1 = 5
+      dig2 = 1
+      return
+   end if
+   if binar < 170 then
+      dig0 = binar - 160
+      dig1 = 6
+      dig2 = 1
+      return
+   end if
+   if binar < 180 then
+      dig0 = binar - 170
+      dig1 = 7
+      dig2 = 1
+      return
+   end if
+   if binar < 190 then
+      dig0 = binar - 180
+      dig1 = 8
+      dig2 = 1
+      return
+   end if
+   if binar < 200 then
+      dig0 = binar - 190
+      dig1 = 9
+      dig2 = 1
+      return
+   end if
+   if binar < 210 then
+      dig0 = binar - 200
+      dig1 = 0
+      dig2 = 2
+      return
+   end if
+   if binar < 220 then
+      dig0 = binar - 210
+      dig1 = 1
+      dig2 = 2
+      return
+   end if
+   if binar < 230 then
+      dig0 = binar - 220
+      dig1 = 2
+      dig2 = 2
+      return
+   end if
+   if binar < 240 then
+      dig0 = binar - 230
+      dig1 = 3
+      dig2 = 2
+      return
+   end if
+   if binar < 250 then
+      dig0 = binar - 240
+      dig1 = 4
+      dig2 = 2
+      return
+   end if
+   if binar < 255 then
+      dig0 = binar - 250
+      dig1 = 5
+      dig2 = 2
+      return
+   end if
+   if binar == 255 then
+      dig0 = 5
+      dig1 = 5
+      dig2 = 2
+      return
+   end if
+end procedure

@@ -1,0 +1,7 @@
+pragma name               f628_4i
+pragma target chip        16f628
+pragma target clock       4_000_000 
+pragma target osc         hs -- overruled 
+-- pragma target fuses       0x3F10
+
+-- include jpic

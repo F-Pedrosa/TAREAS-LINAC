@@ -1,0 +1,58 @@
+--
+-- file      : serialp.jal
+-- author    : Wouter van Ooijen
+-- date      : 17-NOV-1998
+-- purpose   : serial IO routines IO pin assignment and communication settings
+-- requires  : -
+-- used by   : serial
+-- pins      : b6, b7
+--
+-- Copyright (C) 1998 Wouter van Ooijen
+--
+-- This library is free software; you can redistribute it and/or
+-- modify it under the terms of the GNU Library General Public
+-- License as published by the Free Software Foundation; either
+-- version 2 of the License, or (at your option) any later version.
+--
+-- This library is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-- Library General Public License for more details.
+-- 
+-- You should have received a copy of the GNU Library General Public
+-- License along with this library; if not, write to the
+-- Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+-- Boston, MA  02111-1307, USA.
+--
+-- PIC         serial
+-- ----------------------
+--  12 B6       serial input
+--  13 B7       serial output
+--
+--  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--  Modificado por FeP a 
+--  17 A0 	serial output
+--  1  A2	serial input
+--  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+
+-- const asynch_baudrate = 1200
+const asynch_baudrate = 110
+const asynch_polarity = active_high
+const asynch_parity   = parity_none
+const asynch_stopbits = 2
+
+-- var volatile bit asynch_in_pin        is pin_b6
+-- var volatile bit asynch_in_direction  is pin_b6_direction
+
+-- var volatile bit asynch_out_pin       is pin_b7
+-- var volatile bit asynch_out_direction is pin_b7_direction
+
+-- Modificaciones de FeP !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+var volatile bit asynch_in_pin        is pin_a2
+var volatile bit asynch_in_direction  is pin_a2_direction
+
+var volatile bit asynch_out_pin       is pin_a0
+var volatile bit asynch_out_direction is pin_a0_direction
+

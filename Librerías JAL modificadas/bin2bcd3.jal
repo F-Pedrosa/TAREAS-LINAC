@@ -1,0 +1,245 @@
+-- --------------------------------------------------
+--      Bin2Bcd3(var bcd2..bcd0 , bin1..bin0)
+--  converts BIN number in bin1 .. bin0
+--  to BCD out bcd2 .. bcd0
+--
+--  bcd2:msd, bcd1:isd, bcd0:lsd, bin1:msb, bin0:lsb
+-- --------------------------------------------------
+-- msd = most significant digit
+-- isd = intermediate significant digit
+-- lsd = last significant digit
+-- msb = most significant byte
+-- lsb = last significant byte
+
+procedure AdjBcd(Byte in out digit) is
+Var byte temp 
+var bit hc at temp : 3 
+var bit fc at temp : 7 
+	  temp = digit + 3
+	  if hc then digit = temp end if
+	  temp = digit + 0x30
+	  if fc then digit = temp end if
+end procedure
+
+-- procedure bin2bcd3 (byte out bcd2,byte out bcd1,byte out bcd0, byte in bin1 ,byte in bin0)  is
+-- 	 bcd2 = 0
+-- 	 bcd1 = 0
+-- 	 bcd0 = 0
+--    for 16 loop			   -- all (16) bits of bin0..bin2
+--       AdjBcd(bcd0)		 	
+--       AdjBcd(bcd1)		
+--       AdjBcd(bcd2)
+--       Assembler			
+-- 	       rlf bin0,f
+-- 	       rlf bin1,f
+-- 	       rlf bcd0,f
+-- 	       rlf bcd1,f
+-- 	       rlf bcd2,f
+--       End Assembler
+--    end loop
+-- end procedure
+
+-- procedure bin2bcd3 (byte out bcd2,byte out bcd1,byte out bcd0, byte in bin1 ,byte in bin0)  is
+-- 	bcd2 = 0
+-- 	bcd1 = 0
+-- 	bcd0 = 0
+--     for 16 loop
+-- 	  Assembler
+--     	movlw	0x33		
+--     	addwf	bcd0,f
+--     	btfsc	bcd0,3
+--     	andlw	0xf0
+--     	btfsc	bcd0,7
+--     	andlw	0x0f
+--     	subwf	bcd0,f
+--     	
+--     	movlw	0x33		
+--     	addwf	bcd1,f
+--     	btfsc	bcd1,3
+--     	andlw	0xf0
+--     	btfsc	bcd1,7
+--     	andlw	0x0f
+--     	subwf	bcd1,f
+--     	
+--     	movlw	0x33		
+--     	addwf	bcd2,f
+--     	btfsc	bcd2,3
+--     	andlw	0xf0
+--     	btfsc	bcd2,7
+--     	andlw	0x0f
+--     	subwf	bcd2,f
+--
+--         BCF	 3,0           -- clear carry
+-- 	    rlf bin0,f
+-- 	    rlf bin1,f
+-- 	    rlf bcd0,f
+-- 	    rlf bcd1,f
+-- 	    rlf bcd2,f
+--       end Assembler
+--     end loop
+-- end procedure
+
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in binar ) is
+   if binar < 10 then
+      dig0 = binar
+      dig1 = 0
+      dig2 = 0
+      return
+   end if
+   if binar < 20 then
+      dig0 = binar - 10
+      dig1 = 1
+      dig2 = 0
+      return
+   end if
+   if binar < 30 then
+      dig0 = binar - 20
+      dig1 = 2
+      dig2 = 0
+      return
+   end if
+   if binar < 40 then
+      dig0 = binar - 30
+      dig1 = 3
+      dig2 = 0
+      return
+   end if
+   if binar < 50 then
+      dig0 = binar - 40
+      dig1 = 4
+      dig2 = 0
+      return
+   end if
+   if binar < 60 then
+      dig0 = binar - 50
+      dig1 = 5
+      dig2 = 0
+      return
+   end if
+   if binar < 70 then
+      dig0 = binar - 60
+      dig1 = 6
+      dig2 = 0
+      return
+   end if
+   if binar < 80 then
+      dig0 = binar - 70
+      dig1 = 7
+      dig2 = 0
+      return
+   end if
+   if binar < 90 then
+      dig0 = binar - 80
+      dig1 = 8
+      dig2 = 0
+      return
+   end if
+   if binar < 100 then
+      dig0 = binar - 90
+      dig1 = 9
+      dig2 = 0
+      return
+   end if
+   if binar < 110 then
+      dig0 = binar - 100
+      dig1 = 0
+      dig2 = 1
+      return
+   end if
+   if binar < 120 then
+      dig0 = binar - 110
+      dig1 = 1
+      dig2 = 1
+      return
+   end if
+   if binar < 130 then
+      dig0 = binar - 120
+      dig1 = 2
+      dig2 = 1
+      return
+   end if
+   if binar < 140 then
+      dig0 = binar - 130
+      dig1 = 3
+      dig2 = 1
+      return
+   end if
+   if binar < 150 then
+      dig0 = binar - 140
+      dig1 = 4
+      dig2 = 1
+      return
+   end if
+   if binar < 160 then
+      dig0 = binar - 150
+      dig1 = 5
+      dig2 = 1
+      return
+   end if
+   if binar < 170 then
+      dig0 = binar - 160
+      dig1 = 6
+      dig2 = 1
+      return
+   end if
+   if binar < 180 then
+      dig0 = binar - 170
+      dig1 = 7
+      dig2 = 1
+      return
+   end if
+   if binar < 190 then
+      dig0 = binar - 180
+      dig1 = 8
+      dig2 = 1
+      return
+   end if
+   if binar < 200 then
+      dig0 = binar - 190
+      dig1 = 9
+      dig2 = 1
+      return
+   end if
+   if binar < 210 then
+      dig0 = binar - 200
+      dig1 = 0
+      dig2 = 2
+      return
+   end if
+   if binar < 220 then
+      dig0 = binar - 210
+      dig1 = 1
+      dig2 = 2
+      return
+   end if
+   if binar < 230 then
+      dig0 = binar - 220
+      dig1 = 2
+      dig2 = 2
+      return
+   end if
+   if binar < 240 then
+      dig0 = binar - 230
+      dig1 = 3
+      dig2 = 2
+      return
+   end if
+   if binar < 250 then
+      dig0 = binar - 240
+      dig1 = 4
+      dig2 = 2
+      return
+   end if
+   if binar < 255 then
+      dig0 = binar - 250
+      dig1 = 5
+      dig2 = 2
+      return
+   end if
+   if binar == 255 then
+      dig0 = 5
+      dig1 = 5
+      dig2 = 2
+      return
+   end if
+end procedure

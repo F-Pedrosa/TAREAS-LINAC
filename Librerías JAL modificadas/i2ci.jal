@@ -1,0 +1,226 @@
+--
+-- file      : i2ci.jal
+-- author    : Wouter van Ooijen
+-- date      : 23-APR-1999
+-- purpose   : i2c (single) master interface
+-- requires  : jpic, jdelay
+-- pins      : see i2cp
+--
+-- Copyright (C) 1998, 1999 Wouter van Ooijen
+--
+-- This library is free software; you can redistribute it and/or
+-- modify it under the terms of the GNU Library General Public
+-- License as published by the Free Software Foundation; either
+-- version 2 of the License, or (at your option) any later version.
+--
+-- This library is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-- Library General Public License for more details.
+-- 
+-- You should have received a copy of the GNU Library General Public
+-- License along with this library; if not, write to the
+-- Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+-- Boston, MA  02111-1307, USA.
+--
+
+
+-- include the required libraries
+-- include jpic
+include jdelay
+
+-- The output latch values are always low,
+-- the lines are switched open-collector fashion by 
+-- manipulating the direction registers.
+procedure _i2c_init is
+   i2c_clock_in     = low
+   i2c_clock_out    = output
+   i2c_data_in      = low
+   i2c_data_out     = output
+end procedure
+
+-- wait for a change to settle (for internal use only)
+procedure _i2c_wait is
+--   delay_1uS( 12 )
+     assembler
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+     end assembler
+end procedure
+
+-- output a start condition
+procedure i2c_put_start is 
+   _i2c_wait
+   i2c_data_out   = high       -- data high
+   _i2c_wait 
+   i2c_clock_out  = high       -- clock high
+   _i2c_wait
+   i2c_data_out   = low        -- data low
+   _i2c_wait
+   i2c_clock_out  = low        -- clock low
+   _i2c_wait
+end procedure
+
+-- output stop condition
+procedure i2c_put_stop is
+   _i2c_wait
+   i2c_data_out   = low        -- data low
+   _i2c_wait
+   i2c_clock_out  = low        -- clock low
+   _i2c_wait
+   i2c_clock_out  = high       -- clock high
+   _i2c_wait
+   i2c_data_out   = high       -- data high
+   _i2c_wait
+end procedure  
+
+-- init the I2C lines
+_i2c_init
+i2c_put_stop
+_i2c_wait
+
+-- output a single bit (for internal use only)
+procedure _i2c_bit_out( bit in x ) is
+   _i2c_wait
+   i2c_data_out   = x           -- high data bit
+   _i2c_wait
+   i2c_clock_out  = high        -- clock high
+   _i2c_wait
+   while i2c_clock_in == low loop 
+   end loop                     -- wait for slow slave
+   _i2c_wait
+   i2c_clock_out  = low         -- clock low
+   _i2c_wait
+end procedure
+
+-- input a single bit (for internal use only)
+procedure _i2c_bit_in( bit out x ) is
+   _i2c_wait
+   i2c_data_out   = high        -- data open
+   _i2c_wait
+   i2c_clock_out  = high        -- clock high
+   _i2c_wait
+   while i2c_clock_in == low loop 
+   end loop                     -- wait for slow slave
+   _i2c_wait
+   x              = i2c_data_in -- sample data
+   _i2c_wait
+   i2c_clock_out  = low         -- clock low
+   _i2c_wait
+end procedure
+
+-- wait for an ack condition   
+procedure i2c_wait_ack is
+   _i2c_wait
+   i2c_data_out    = high       -- data open
+   _i2c_wait
+   i2c_clock_out   = high       -- clock high
+   _i2c_wait   
+   while i2c_clock_in == low loop 
+   end loop                     -- wait for slow slave
+   -- a check for the slave's acknowledge 
+   -- (data should be low)
+   -- could be added here
+   _i2c_wait 
+   i2c_clock_out   = low        -- clock low
+   _i2c_wait
+end procedure
+
+-- output an ack condition
+procedure i2c_put_ack is
+   _i2c_bit_out( low )   
+end procedure
+
+-- output a nack condition
+procedure i2c_put_nack is
+   _i2c_bit_out( high )
+end procedure  
+
+-- output a nack condition and stop
+procedure i2c_put_nack_stop is
+   i2c_put_nack
+   i2c_put_stop
+end procedure  
+
+-- output an ack condition and stop
+procedure i2c_put_ack_stop is
+   i2c_put_ack
+   i2c_put_stop
+end procedure  
+
+-- output one byte
+procedure i2c_put_data( byte in x ) is
+   var bit b at x : 7
+   for 8 loop
+      _i2c_bit_out( b )
+      x = x << 1   
+   end loop
+end procedure
+
+-- input one byte
+procedure i2c_get_data( byte out x ) is
+   var bit b at x : 0
+   for 8 loop 
+      x = x << 1
+      _i2c_bit_in( b )
+   end loop
+end procedure
+
+-- output a read address
+procedure i2c_put_read_address( byte in x ) is
+   i2c_put_start
+   i2c_put_data( ( x << 1 ) + 0b_0000_0001  )
+   i2c_wait_ack
+end procedure
+
+-- output a write address
+procedure i2c_put_write_address( byte in x ) is
+   i2c_put_start
+   i2c_put_data( ( x << 1 ) + 0b_0000_0000  )
+   i2c_wait_ack
+end procedure
+
+-- read one byte from the specified address
+procedure i2c_read_1( byte in address, byte out d1 ) is
+   i2c_put_read_address( address )
+   i2c_get_data( d1 )
+   i2c_put_ack_stop
+end procedure
+
+-- write one byte to the specified address
+procedure i2c_write_1( byte in address, byte in d1 ) is
+   i2c_put_write_address( address )
+   i2c_put_data( d1 )
+   i2c_wait_ack   
+   i2c_put_stop
+end procedure
+
+-- read two bytes from the specified address
+procedure i2c_read_2( byte in address, byte out d1, byte out d2 ) is
+   i2c_put_read_address( address )  
+   i2c_get_data( d1 )
+   i2c_put_ack
+   i2c_get_data( d2 )
+   i2c_put_ack
+   i2c_put_stop
+end procedure
+
+-- write two bytes to the specified address
+procedure i2c_write_2( byte in address, byte in d1, byte in d2 ) is
+   i2c_put_write_address( address )
+   i2c_put_data( d1 )
+   i2c_wait_ack
+   i2c_put_data( d2 )
+   i2c_wait_ack
+   i2c_put_stop
+end procedure

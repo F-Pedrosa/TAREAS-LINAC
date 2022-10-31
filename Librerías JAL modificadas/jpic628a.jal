@@ -1,0 +1,719 @@
+-- file      : jpic628a.jal
+-- author    : Wouter van Ooijen
+-- headache  : Surducan Vasile   
+-- playing   : Andrew Markham 
+-- date      : nov-2001
+-- purpose   : access to PIC628 peripherals, eeprom and usart
+-- requires  : -
+--
+-- Copyright (C) 1998, 2000 Wouter van Ooijen
+--
+-- This library is free software; you can redistribute it and/or
+-- modify it under the terms of the GNU Library General Public
+-- License as published by the Free Software Foundation; 
+--
+-- nov-2001   adapted by V. Surducan for 16f628 
+-- apr-2002 A.C.Markham : changed usart to make it a FIFO buffer rather than
+-- a wait & receive
+-- may-2004 special [k] : added setosc_32kHz & setosc_4MHz
+-- --------------------------------------------------------------------
+-- word  cpd lvp boden mclr pwrt wdt osc         observation
+-- 3fc1  off on  on    io   off  off xt
+-- 3fd0  off on  on    io   off  off intrc+io
+-- 3ff0  off on  on    mclr off  off intrc+io
+-- 3f62  off off on    mclr off  off hs          default
+-- 3f61  off off on    mclr off  off xt		
+-- -------------------------------------------------------------
+-- pragma target fuses 0x_3f61 -- change as you wish
+
+include JRTL
+
+-- --------------------------------------------------------------------
+-- some special function registers and bits within these registers
+-- --------------------------------------------------------------------
+-- common pic registers:
+var volatile byte indf         at  0
+var volatile byte tmr0         at  1
+var volatile byte pcl          at  2
+var volatile byte status       at  3
+var volatile byte fsr          at  4
+var volatile byte port_a       at  5
+var volatile byte port_b       at  6
+var volatile byte pclath       at 10
+var volatile byte intcon       at 11
+
+
+-- pic16F628 registers:
+
+var volatile byte pir1    at 0x0C
+var volatile byte tmr1l   at 0x0E
+var volatile byte tmr1h   at 0x0F
+var volatile byte t1con   at 0x10
+var volatile byte tmr2    at 0x11
+var volatile byte t2con   at 0x12
+var volatile byte ccpr1l  at 0x15
+var volatile byte ccpr1h  at 0x16
+var volatile byte ccp1con at 0x17
+var volatile byte rcsta   at 0x18
+var volatile byte txreg   at 0x19
+var volatile byte rcreg   at 0x1A
+var volatile byte cmcon   at 0x1F
+var volatile byte pie1    at 0x8C
+var volatile byte pcon    at 0x8E
+var volatile byte pr2     at 0x92
+var volatile byte txsta   at 0x98
+var volatile byte spbrg   at 0x99
+var volatile byte eedata  at 0x9A
+var volatile byte eeadr   at 0x9B
+var volatile byte eecon1  at 0x9C
+var volatile byte eecon2  at 0x9D
+var volatile byte vrcon   at 0x9F
+
+
+
+-- pseudo-variable in bank 1
+var volatile byte option
+
+var volatile bit  pin_a0 at port_a : 0
+var volatile bit  pin_a1 at port_a : 1
+var volatile bit  pin_a2 at port_a : 2
+var volatile bit  pin_a3 at port_a : 3
+var volatile bit  pin_a4 at port_a : 4
+var volatile bit  pin_a5 at port_a : 5
+var volatile bit  pin_a6 at port_a : 6
+var volatile bit  pin_a7 at port_a : 7
+
+var volatile bit  pin_b0 at port_b : 0
+var volatile bit  pin_b1 at port_b : 1
+var volatile bit  pin_b2 at port_b : 2
+var volatile bit  pin_b3 at port_b : 3
+var volatile bit  pin_b4 at port_b : 4
+var volatile bit  pin_b5 at port_b : 5
+var volatile bit  pin_b6 at port_b : 6
+var volatile bit  pin_b7 at port_b : 7
+
+
+-- status associated bits
+var volatile bit  status_c    at status : 0
+var volatile bit  status_dc   at status : 1
+var volatile bit  status_z    at status : 2
+var volatile bit  status_pd   at status : 3
+var volatile bit  status_to   at status : 4
+var volatile bit  status_rp0  at status : 5
+var volatile bit  status_rp1  at status : 6
+var volatile bit  status_irp  at status : 7
+
+-- intcon associated bits
+var volatile bit  intcon_gie  at intcon : 7
+var volatile bit  intcon_eeie at intcon : 6
+var volatile bit  intcon_peie at intcon : 6
+var volatile bit  intcon_t0ie at intcon : 5
+var volatile bit  intcon_inte at intcon : 4
+var volatile bit  intcon_rbie at intcon : 3
+var volatile bit  intcon_t0if at intcon : 2
+var volatile bit  intcon_intf at intcon : 1
+var volatile bit  intcon_rbif at intcon : 0
+
+-- tmr1 associated bits at t1con
+var volatile bit  t1ckps1 at t1con : 5
+var volatile bit  t1ckps0 at t1con : 4
+var volatile bit  t1oscen at t1con : 3
+var volatile bit  t1sync  at t1con : 2
+var volatile bit  tmr1cs  at t1con : 1
+var volatile bit  tmr1on  at t1con : 0
+
+-- ccp associated bits 
+var volatile bit  ccp1x at ccp1con : 5
+var volatile bit  ccp1y at ccp1con : 4
+
+-- tmr1 associated bits at pie,pir
+var volatile bit  tmr1ie at pie1   : 0
+
+
+
+-- eecon associated bits
+var volatile bit  eecon1_rd     at eecon1 : 0
+var volatile bit  eecon1_wr     at eecon1 : 1
+var volatile bit  eecon1_wren   at eecon1 : 2
+var volatile bit  eecon1_wrerr  at eecon1 : 3
+var volatile bit  eecon1_eepgd  at eecon1 : 7
+
+
+-- usart txsta associated bits
+var volatile bit  tx9           at txsta : 6
+var volatile bit  txen          at txsta : 5
+var volatile bit  sync          at txsta : 4
+var volatile bit  brgh          at txsta : 2
+var volatile bit  tx9d          at txsta : 0
+
+-- usart rcsta associated bits
+var volatile bit  spen          at rcsta : 7
+var volatile bit  rx9           at rcsta : 6
+var volatile bit  cren          at rcsta : 4
+var volatile bit  ferr          at rcsta : 2
+var volatile bit  oerr          at rcsta : 1
+var volatile bit  rx9d          at rcsta : 0
+
+-- cmcon associated bits
+var volatile bit  C2OUT           at cmcon : 7
+var volatile bit  C1OUT           at cmcon : 6
+var volatile bit  C2INV           at cmcon : 5
+var volatile bit  C1INV           at cmcon : 4
+var volatile bit  CIS             at cmcon : 3
+var volatile bit  CM2             at cmcon : 2
+var volatile bit  CM1             at cmcon : 1
+var volatile bit  CM0             at cmcon : 0
+
+-- vrcon associated bits
+var volatile bit  VREN            at vrcon : 7
+var volatile bit  VROE            at vrcon : 6
+var volatile bit  VRR             at vrcon : 5
+var volatile bit  VR3             at vrcon : 3
+var volatile bit  VR2             at vrcon : 2
+var volatile bit  VR1             at vrcon : 1
+var volatile bit  VR0             at vrcon : 0
+
+-- mssp associated bits at pir1
+var volatile bit  EEIF          at PIR1  : 7
+var volatile bit  CMIF          at PIR1  : 6
+var volatile bit  RCIF          at PIR1  : 5
+var volatile bit  TXIF          at PIR1  : 4
+var volatile bit  CCP1IF        at PIR1  : 2
+var volatile bit  TMR2IF        at PIR1  : 1
+var volatile bit  TMR1IF        at PIR1  : 0
+
+-- pcon associated bits
+var volatile bit  OSCF		at pcon  : 3
+var volatile bit  POR		at pcon  : 1
+var volatile bit  BOD		at pcon  : 0
+
+
+-- --------------------------------------------------------------------
+-- register bank selection
+-- --------------------------------------------------------------------
+
+procedure bank_0 is
+      asm bcf status_rp0
+      asm bcf status_rp1
+   asm bank 0
+end procedure
+
+procedure bank_1 is
+      asm bsf status_rp0
+      asm bcf status_rp1
+   asm bank 1
+end procedure
+
+procedure bank_2 is
+      asm bcf status_rp0
+      asm bsf status_rp1
+   asm bank 2
+end procedure
+
+procedure bank_3 is
+      asm bsf status_rp0
+      asm bsf status_rp1
+   asm bank 3
+end procedure
+
+
+
+-- --------------------------------------------------------------------
+-- option put and get
+-- --------------------------------------------------------------------
+
+procedure option'put( byte in x ) is
+   assembler
+      bank  movfw x
+            option
+   end assembler
+end procedure
+
+function option'get return byte is
+   var byte x
+   asm bank movfw 0x81
+   bank_1 
+   asm bank  movwf x
+   bank_0 
+   return x
+end function
+
+-- --------------------------------------------------------------------
+-- port and pin direction
+-- --------------------------------------------------------------------
+
+const bit input           = on
+const bit output          = off
+const byte all_input      = 0b_1111_1111
+const byte all_output     = 0b_0000_0000
+
+-- shadows of the actual tris values
+var byte trisa
+var byte trisb
+
+-- Bring the applicable trisX values in accordance
+-- with the power-on hardware defaults.
+trisa = all_input
+trisb = all_input
+
+procedure _trisa_flush is
+   assembler
+      bank movfw trisa
+           tris  5
+   end assembler
+end procedure
+
+procedure _trisb_flush is
+   assembler
+      bank movfw trisb
+           tris  6
+   end assembler
+end procedure
+
+
+var byte port_a_direction at trisa
+procedure port_a_direction'put( byte in x at trisa ) is
+   _trisa_flush
+end procedure
+
+var byte port_b_direction at trisb
+procedure port_b_direction'put( byte in x at trisb ) is
+   _trisb_flush
+end procedure
+
+
+var bit pin_a0_direction at trisa : 0
+var bit pin_a1_direction at trisa : 1
+var bit pin_a2_direction at trisa : 2
+var bit pin_a3_direction at trisa : 3
+var bit pin_a4_direction at trisa : 4
+var bit pin_a5_direction at trisa : 5
+var bit pin_a6_direction at trisa : 6
+var bit pin_a7_direction at trisa : 7
+
+procedure pin_a0_direction'put( bit in d at trisa : 0 ) is
+   _trisa_flush
+end procedure
+procedure pin_a1_direction'put( bit in d at trisa : 1 ) is
+   _trisa_flush
+end procedure
+procedure pin_a2_direction'put( bit in d at trisa : 2 ) is
+   _trisa_flush
+end procedure
+procedure pin_a3_direction'put( bit in d at trisa : 3 ) is
+   _trisa_flush
+end procedure
+procedure pin_a4_direction'put( bit in d at trisa : 4 ) is
+   _trisa_flush
+end procedure
+procedure pin_a5_direction'put( bit in d at trisa : 5 ) is
+   _trisa_flush
+end procedure
+procedure pin_a6_direction'put( bit in d at trisa : 6 ) is
+   _trisa_flush
+end procedure
+procedure pin_a7_direction'put( bit in d at trisa : 7 ) is
+   _trisa_flush
+end procedure
+
+var bit pin_b0_direction at trisb : 0
+var bit pin_b1_direction at trisb : 1
+var bit pin_b2_direction at trisb : 2
+var bit pin_b3_direction at trisb : 3
+var bit pin_b4_direction at trisb : 4
+var bit pin_b5_direction at trisb : 5
+var bit pin_b6_direction at trisb : 6
+var bit pin_b7_direction at trisb : 7
+
+procedure pin_b0_direction'put( bit in d at trisb : 0 ) is
+   _trisb_flush
+end procedure
+procedure pin_b1_direction'put( bit in d at trisb : 1 ) is
+   _trisb_flush
+end procedure
+procedure pin_b2_direction'put( bit in d at trisb : 2 ) is
+   _trisb_flush
+end procedure
+procedure pin_b3_direction'put( bit in d at trisb : 3 ) is
+   _trisb_flush
+end procedure
+procedure pin_b4_direction'put( bit in d at trisb : 4 ) is
+   _trisb_flush
+end procedure
+procedure pin_b5_direction'put( bit in d at trisb : 5 ) is
+   _trisb_flush
+end procedure
+procedure pin_b6_direction'put( bit in d at trisb : 6 ) is
+   _trisb_flush
+end procedure
+procedure pin_b7_direction'put( bit in d at trisb : 7 ) is
+   _trisb_flush
+end procedure
+
+procedure port_a_low_direction'put( byte in d ) is
+   var byte a at trisa = ( trisa & 0xF0 ) | ( d & 0x0F )
+   _trisa_flush
+end procedure
+procedure port_a_high_direction'put( byte in d ) is
+   var byte a at trisa = ( trisa & 0x0F ) | ( ( d & 0x0F ) << 4 )
+   _trisa_flush
+end procedure
+
+procedure port_b_low_direction'put( byte in d ) is
+   var byte b at trisb = ( trisb & 0xF0 ) | ( d & 0x0F )
+   _trisb_flush
+end procedure
+procedure port_b_high_direction'put( byte in d ) is
+   var byte b at trisb  = ( trisb & 0x0F ) | ( ( d & 0x0F ) << 4 )
+   _trisb_flush
+end procedure
+
+
+function port_a_low_direction'get return byte is
+   var byte a at trisa
+   return a & 0x0F
+end function
+function port_a_high_direction'get return byte is
+   var byte a at trisa
+   return a >> 4
+end function
+
+function port_b_low_direction'get return byte is
+   var byte b at trisb
+   return b & 0x0F
+end function
+function port_b_high_direction'get return byte is
+   var byte b at trisb
+   return b >> 4
+end function
+
+
+-- port and pin value
+
+var byte _port_a_buffer
+var byte _port_b_buffer
+
+
+procedure _port_a_flush is
+   var volatile byte port_a at 5 = _port_a_buffer
+end procedure
+procedure _port_b_flush is
+   var volatile byte port_b at 6 = _port_b_buffer
+end procedure
+
+
+procedure port_a'put( byte in x at _port_a_buffer ) is
+   _port_a_flush
+end procedure
+procedure port_b'put( byte in x at _port_b_buffer ) is
+   _port_b_flush
+end procedure
+
+
+procedure port_a_low'put( byte in x ) is
+   _port_a_buffer = ( _port_a_buffer  & 0xF0 ) | ( x & 0x0F )
+   _port_a_flush
+end procedure
+function port_a_low'get return byte is
+   return _port_a_buffer & 0x0F
+end function
+
+procedure port_a_high'put( byte in x ) is
+   _port_a_buffer = ( _port_a_buffer & 0x0F ) | ( x << 4 )
+   _port_a_flush
+end procedure
+function port_a_high'get return byte is
+   return _port_a_buffer >> 4
+end function
+
+procedure port_b_low'put( byte in x ) is
+   _port_b_buffer = ( _port_b_buffer  & 0xF0 ) | ( x & 0x0F )
+   _port_b_flush
+end procedure
+function port_b_low'get return byte is
+   return _port_b_buffer & 0x0F
+end function
+
+procedure port_b_high'put( byte in x ) is
+   _port_b_buffer = ( _port_b_buffer & 0x0F ) | ( x << 4 )
+   _port_b_flush
+end procedure
+function port_b_high'get return byte is
+   return _port_b_buffer >> 4
+end function
+
+procedure pin_a0'put( bit in x at _port_a_buffer : 0 ) is
+   _port_a_flush
+end procedure
+procedure pin_a1'put( bit in x at _port_a_buffer : 1 ) is
+   _port_a_flush
+end procedure
+procedure pin_a2'put( bit in x at _port_a_buffer : 2 ) is
+   _port_a_flush
+end procedure
+procedure pin_a3'put( bit in x at _port_a_buffer : 3 ) is
+   _port_a_flush
+end procedure
+procedure pin_a4'put( bit in x at _port_a_buffer : 4 ) is
+   _port_a_flush
+end procedure
+procedure pin_a5'put( bit in x at _port_a_buffer : 5 ) is
+   _port_a_flush
+end procedure
+procedure pin_a6'put( bit in x at _port_a_buffer : 6 ) is
+   _port_a_flush
+end procedure
+procedure pin_a7'put( bit in x at _port_a_buffer : 7 ) is
+   _port_a_flush
+end procedure
+
+procedure pin_b0'put( bit in x at _port_b_buffer : 0 ) is
+   _port_b_flush
+end procedure
+procedure pin_b1'put( bit in x at _port_b_buffer : 1 ) is
+   _port_b_flush
+end procedure
+procedure pin_b2'put( bit in x at _port_b_buffer : 2 ) is
+   _port_b_flush
+end procedure
+procedure pin_b3'put( bit in x at _port_b_buffer : 3 ) is
+  _port_b_flush
+end procedure
+procedure pin_b4'put( bit in x at _port_b_buffer : 4 ) is
+   _port_b_flush
+end procedure
+procedure pin_b5'put( bit in x at _port_b_buffer : 5 ) is
+   _port_b_flush
+end procedure
+procedure pin_b6'put( bit in x at _port_b_buffer : 6 ) is
+   _port_b_flush
+end procedure
+procedure pin_b7'put( bit in x at _port_b_buffer : 7 ) is
+   _port_b_flush
+end procedure
+
+
+-- --------------------------------------------------------------------
+-- indirect access to the file registers
+-- --------------------------------------------------------------------
+
+procedure file_get( byte in a, byte out d ) is begin
+   fsr = a
+   d   = indf
+end procedure
+
+procedure file_put( byte in a, byte in d ) is begin
+   fsr  = a
+   indf = d
+end procedure
+
+
+-- --------------------------------------------------------------------
+-- access to the internal eeprom
+-- --------------------------------------------------------------------
+
+ procedure eeprom_get( byte in a, byte out d ) is
+     assembler
+      movf a, w
+      bsf status_rp0             -- bank_1
+      bcf status_rp1
+      movwf eeadr
+      bsf eecon1_rd              -- set read bit in EECON1
+      movf eedata, w
+      bcf status_rp0             -- bank_0
+      movwf d                    -- the actual data from eeprom
+     end assembler
+ end procedure  
+
+
+procedure eeprom_put( byte in a, byte in d ) is
+  assembler
+   local loop
+      movf a, w
+      bsf status_rp0             -- bank_1
+      bcf status_rp1
+      movwf eeadr
+      bcf status_rp0             -- bank_0
+      movf d, w
+      bsf status_rp0             -- bank_1
+      movwf eedata       
+      bsf eecon1_wren            -- enable eeprom write
+      bcf intcon_gie             -- disable interrupts
+      movlw 0x55
+      movwf eecon2   
+      movlw 0xAA
+      movwf eecon2          
+      bsf eecon1_wr              -- begin write
+loop: btfsc eecon1_wr
+      goto loop                  -- wait for completion
+      bcf eecon1_wren            -- disable to prevent spurious writes
+      bsf intcon_gie             -- enable interrupts
+      bcf status_rp0             -- back to page 0
+  end assembler
+end procedure
+
+-- -----------------------------------------------------------------
+-- uart routines
+-- -----------------------------------------------------------------
+const xtal  = target_clock          
+const baudrate = 19200           -- modify as you need
+
+procedure uart_init is
+-- uart initialization
+  pin_b2_direction = output     -- tx
+  pin_b1_direction = input      -- rx
+  bank_1
+assembler
+  bcf txsta, tx9                -- 8 bit mode
+  bsf txsta, txen               -- enable transmit function
+  bcf txsta, sync               -- asynchronous mode selected
+ -- bcf txsta, brgh             -- disable high baud rate generator
+  bsf txsta, brgh               -- enable high baud rate generator
+  bcf txsta, tx9d               -- tx9d cleared
+end assembler
+if brgh then
+ spbrg = ( xtal / ( baudrate * 16 )) - 1  
+elsif ! brgh then
+ spbrg = ( xtal / ( baudrate * 64 )) - 1
+end if
+
+--  this table is just to see the baudrate limits for xtals
+--  ------------------------------------------------------
+--  xtal(MHz)	baud_rate	spbrg/brgh	spbrg/brgh
+--  ------------------------------------------------------
+--  20  	1200		255   0 	-
+--  20        230400            -               4     1
+--  ------------------------------------------------------
+--  10          1200            129   0         -
+--  10        115200            -               4     1
+--  ------------------------------------------------------
+--  4            300            207   0         -
+--  4          19200            -               12    1
+--  ------------------------------------------------------
+  bank_0
+assembler
+  bsf rcsta, spen          -- serial port enabled
+  bcf rcsta, rx9           -- 8 bit mode
+  bsf rcsta, cren          -- enable constant reception
+  bcf rcsta, ferr          -- clear for no framing error
+  movf rcreg, w            -- clear uart receiver and 3 fifo's
+  movf rcreg, w
+  movf rcreg, w
+  movlw 0
+  movwf txreg              -- send out one dummy caracter
+end assembler
+end procedure
+
+procedure async_rx ( byte out rx_data , bit out no_data_bit) is
+var byte framecounter
+  assembler
+    local ser_in, uart_ready, no_int, overerror, frameerror, no_data
+ser_in:
+	btfsc	rcsta,oerr
+	goto	overerror	-- to overflow error...
+	btfsc	rcsta,ferr
+	goto	frameerror	-- to framing error...
+uart_ready:
+	btfss	pir1,rcif
+	goto	no_data		-- return bit saying buffer is empty(acm)
+				
+no_int:
+	bcf	intcon_gie	-- switch off interrupts 
+	btfsc	intcon_gie	-- be sure
+	goto 	no_int
+        movf	rcreg,w         -- recover uart data
+	bsf	intcon_gie	-- re-enable interrupts
+	bsf 	no_data_bit	-- We got something!(acm)
+	movwf	rx_data		-- save in reception register 
+	return
+
+overerror: -- if rcreg is still full at third byte stop bit detection
+	bcf	intcon_gie	-- turn interrupts off
+	btfsc	intcon_gie	-- be sure
+	goto 	overerror
+	bcf	rcsta,cren	-- disable continuous receive, reset oerr
+	movf	rcreg,w	        -- flush rcreg + 2 fifo, this will clears the
+	movf	rcreg,w	        -- ferr flag
+	movf	rcreg,w
+	bsf	rcsta,cren	-- enable continous receive, clear oerr			
+	bsf	intcon_gie	-- enable interrupts.
+	goto	ser_in		-- try again...
+
+frameerror:			-- if garbage is coming in
+
+	bcf	intcon_gie	-- disable interrupts
+	btfsc	intcon_gie	
+	goto 	frameerror	-- be sure
+  	movf	rcreg,w         -- reading rcreg clears ferr flag
+	bsf	intcon_gie	-- enable interrupts.
+	goto	ser_in		-- try again...	
+
+no_data:			-- FIFO buffer is empty(acm)
+	bcf	no_data_bit	-- jump out of receive loop(acm)
+	return
+end assembler
+end procedure
+
+procedure async_tx ( byte in tx_data ) is
+ assembler
+  local transmit, interrupt
+ 	movf	tx_data,w	-- copy tx_data to w.
+transmit:				
+	btfss	pir1,txif   
+	goto	transmit	-- wait for transmitter interrupt flag
+interrupt:
+	bcf	intcon_gie	-- disable interrupts
+	btfsc	intcon_gie	-- be sure
+	goto	interrupt
+	movwf	txreg           -- load data to be sent...
+	bsf	intcon_gie	-- re-enable interrupts
+	return			-- transmitted data is in W
+ end assembler
+end procedure
+
+-- --------------------------------------------------------------------
+-- pic special functions
+-- --------------------------------------------------------------------
+
+procedure sleep is
+   asm sleep
+end procedure
+
+procedure clear_watchdog is
+ -- 00h -> WDT
+ -- 0 -> WDT prescaler
+ -- 1 -> TO (timeout bit, non-writable) 0 = A WDT timeout occurred
+ -- 1 -> PD (power-down bit, non-writable) 0 = By execution of the SLEEP instruction
+ asm clrwdt
+end procedure
+
+procedure swap_nibbles( byte in out x ) is
+   asm bank swapf x, f
+end procedure
+
+
+-- disable f628 comparator function for digital IO
+procedure disable_comp is
+ cmcon = 0x03 ;disable comp
+ bank_1
+ asm bcf vroe ;disable vref
+ bank_0
+end procedure
+
+procedure setosc_37kHz is
+ -- Can be configured in either ER or INTRC Oscillator modes.
+ -- Allows to dynamically toggle the osc speed between 4 MHz and 37 kHz.
+ -- In ER mode, the 37 kHz operation is fixed and does not vary with resistor value.
+ bank_1
+ asm bcf OSCF
+ bank_0
+end procedure
+
+procedure setosc_4MHz is
+ -- Can be configured in either ER or INTRC Oscillator modes.
+ -- Allows to dynamically toggle the osc speed between 4 MHz and 37 kHz.
+ -- In ER mode, the 4 MHz setting will vary depending on the value of the external resistor.
+ bank_1
+ asm bsf OSCF
+ bank_0
+end procedure

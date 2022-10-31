@@ -1,0 +1,79 @@
+--
+-- file      : hd447804.jal
+-- author    : Wouter van Ooijen
+-- date      : 17-NOV-1998
+-- purpose   : hd44780 4-bits interface
+-- includes  : jpic, jdelay
+-- pins      : see hd44780p
+--
+-- Copyright (C) 1998 Wouter van Ooijen
+--
+-- This library is free software; you can redistribute it and/or
+-- modify it under the terms of the GNU Library General Public
+-- License as published by the Free Software Foundation; either
+-- version 2 of the License, or (at your option) any later version.
+--
+-- This library is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-- Library General Public License for more details.
+-- 
+-- You should have received a copy of the GNU Library General Public
+-- License along with this library; if not, write to the
+-- Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+-- Boston, MA  02111-1307, USA.
+--
+
+-- required libraries
+   -- include jpic
+   include jdelay
+
+-- the IO pin assignment
+include hd44780p
+
+-- output low nibble in value to the HD44780
+procedure HD44780_IO( byte in value ) is
+   hd44780_4_E  = high      -- enable
+   hd44780_4_D  = value     -- put value on the data lines
+   hd44780_4_E  = low       -- disable
+   delay_1uS( 250 )         -- enough for the simple operations
+end procedure
+
+-- output the instruction byte in value to the HD44780
+procedure HD44780_instruction( byte in value ) is
+   hd44780_4_DI = low       -- select instruction
+   HD44780_IO( value >> 4 ) -- output high nibble
+   delay_10uS( 130 )        -- required delay
+   HD44780_IO( value )      -- output low nibble
+   delay_10uS( 130 )        -- required delay
+end procedure
+
+-- output the data byte in value to the HD44780
+procedure HD44780_write( byte in value ) is
+   hd44780_4_DI = high      -- select data
+   HD44780_IO( value >> 4 ) -- output high nibble
+   HD44780_IO( value )      -- output low nibble
+end procedure
+
+-- idem, pseudo-variable
+procedure HD44780'put( byte in value ) is
+   hd44780_4_DI = high      -- select data
+   HD44780_IO( value >> 4 ) -- output high nibble
+   HD44780_IO( value )      -- output low nibble
+end procedure
+
+-- initialisation
+_hd44780_4_init             -- IO pin initialisation
+delay_10mS( 10 )            -- gives the HD44780 time to wake up
+hd44780_4_DI = low          -- select instructions
+HD44780_IO( 0b_0011 )       -- sync one
+delay_10uS( 50 )            -- extra delay 
+HD44780_IO( 0b_0011 )       -- and one more
+delay_10uS( 50 )            -- extra delay
+HD44780_IO( 0b_0011 )       -- end yet another
+delay_10uS( 50 )            -- extra delay
+HD44780_instruction( 0b_0011_0010 )  -- init
+HD44780_instruction( 0b_0010_1000 )  -- two lines, 5x7 (high nibble)
+
+-- include the other procedures
+include hd44780

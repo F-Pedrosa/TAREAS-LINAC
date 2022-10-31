@@ -1,0 +1,176 @@
+; file      : miserial.jal
+; author    : FeP
+; date      : 12-DIC-2005
+; purpose   : rutinas I/O seriales por software
+; pins      : a0,a2
+
+; bibliotecas requeridas
+include jpic
+include jdelay
+include interval
+
+; parámetros de la comunicación
+const asynch_baudrate = 300
+const asynch_polarity = active_low
+const asynch_parity   = parity_none
+const asynch_stopbits = 1
+
+var volatile bit asynch_in_pin        is pin_a2
+var volatile bit asynch_in_direction  is pin_a2_direction
+
+var volatile bit asynch_out_pin       is pin_a0
+var volatile bit asynch_out_direction is pin_a0_direction
+
+; parity is not implemented
+if asynch_parity != parity_none then
+   pragma error ; parity is not implemented
+end if
+
+; set the appropriate interval
+procedure _asynch_init is
+   if asynch_baudrate == 19200 then
+      init_interval_1uS( 52 )
+   elsif asynch_baudrate == 9600 then
+      init_interval_1uS( 104 )
+   elsif asynch_baudrate == 4800 then
+      init_interval_1uS( 208 )
+   elsif asynch_baudrate == 2400 then
+      init_interval_10uS( 42 )
+   elsif asynch_baudrate == 1200 then
+      init_interval_10uS( 83 )
+   elsif asynch_baudrate == 600 then
+      init_interval_10uS( 166 )
+   elsif asynch_baudrate == 300 then
+      init_interval_100uS( 33 )
+   elsif asynch_baudrate == 110 then
+      init_interval_100uS( 91 )
+   else
+      pragma error ; unsupported baudrate
+   end if
+end procedure
+
+; wait approximately half a bit time
+procedure _asynch_wait_half is
+   if asynch_baudrate == 19200 then
+      delay_1uS( 10 )
+   elsif asynch_baudrate == 9600 then
+      delay_1uS( 21 )
+   elsif asynch_baudrate == 4800 then
+      delay_1uS( 42 )
+   elsif asynch_baudrate == 2400 then
+      delay_1uS( 85 )
+   elsif asynch_baudrate == 1200 then
+      delay_1uS( 170 )
+   elsif asynch_baudrate == 600 then
+      delay_10uS( 34 )
+   elsif asynch_baudrate == 300 then
+      delay_10uS( 68 )
+   elsif asynch_baudrate == 110 then
+      delay_10uS( 136 )
+   else
+      pragma error ; unsupported baudrate
+   end if
+end procedure
+
+; send a byte
+procedure asynch_send( byte in x ) is
+   var bit current_bit at x : 0
+
+   ; set the appropriate interval
+   _asynch_init
+   next_interval
+   next_interval
+
+   ; the start bit
+   if asynch_polarity == active_high then
+      asynch_out_pin = high
+   else
+      asynch_out_pin = low
+   end if
+   next_interval
+
+   ; the 8 data bits
+   for 8 loop
+      if asynch_polarity == active_high then
+         asynch_out_pin = ! current_bit
+      else
+         asynch_out_pin = current_bit
+      end if
+      x = x >> 1
+      next_interval
+   end loop
+
+   ; the stop bits
+   if asynch_polarity == active_high then
+      asynch_out_pin = low
+   else
+      asynch_out_pin = high
+   end if
+   for asynch_stopbits loop
+      next_interval
+   end loop
+
+end procedure
+
+procedure asynch'put( byte in x ) is
+   asynch_send( x )
+end procedure
+
+procedure asynch_receive( byte out x ) is
+   var bit current_bit at x : 7
+
+   ; wait for a start bit
+   if asynch_polarity == active_high then
+      while asynch_in_pin != high loop end loop
+   else
+      while asynch_in_pin != low loop end loop
+   end if
+
+   ; wait for half a bit time
+   _asynch_wait_half
+
+   ; set the appropriate interval
+   _asynch_init
+
+   ; now repeat 8 times:
+   ; wait for the next interval and sample
+   for 8 loop
+      next_interval
+      x = x >> 1
+      if asynch_polarity == active_high then
+         current_bit = ! asynch_in_pin
+      else
+         current_bit = asynch_in_pin
+      end if
+   end loop
+
+   ; wait for the (first) stop bit
+   next_interval
+
+end procedure
+
+function asynch_poll( byte out x ) return bit is
+
+   ; a start bit?
+   if asynch_polarity == active_high then
+      if asynch_in_pin != high then
+         return false
+      end if
+   else
+      if asynch_in_pin != low then
+         return false
+      end if
+   end if
+
+   ; start bit detected, receive the char
+   asynch_receive( x )
+
+   ; something received!
+   return true
+
+end function
+
+; intialize the input and output pins
+asynch_out_direction = output
+asynch_in_direction  = input
+
