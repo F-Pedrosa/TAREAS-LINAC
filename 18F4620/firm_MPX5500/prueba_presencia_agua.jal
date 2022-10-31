@@ -1,0 +1,58 @@
+; Firmware ejemplo de uso del sensor de presión, mostrando por display el valor medido (en hPa, atm o psi)
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+include delay
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+; -----------------------------------------------------------
+const bit ADC_HIGH_RESOLUTION = true
+const byte ADC_NCHANNEL = 1
+const byte ADC_NVREF = ADC_NO_EXT_VREF
+include adc
+adc_init
+; -----------------------------------------------------------
+pin_a0_direction = input
+pin_a1_direction = input
+
+var word tension_adc = 0
+
+
+
+; =========================================================================================================================
+testigo = on
+delay_100ms(5)
+testigo = off
+delay_100ms(5)
+
+forever loop
+   tension_adc = adc_read_high_res(0)
+   if tension_adc < 900 then         ; 900 valor a ojo, para ajustarlo hay que medir bien los valores reales
+      testigo = on
+   else
+      testigo = off
+   end if
+   delay_100ms(1)
+
+
+end loop
+

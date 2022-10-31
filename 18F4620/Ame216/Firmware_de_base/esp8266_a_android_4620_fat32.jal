@@ -1,0 +1,232 @@
+; Firmware que lee archivo desde una SD y lo envía via ESP8266 a un servidor FTP en un cel Android
+
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+_usec_delay(100_000) -- wait for power to settle
+
+include delay
+
+; para comunicarse con el módulo 8266
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+; necesario para manejo de strings
+include print
+; librería SPI
+include spi_master_hw
+; definir pines SPI
+pin_sdi_direction = input    ; spi input
+pin_sdo_direction = output   ; spi output
+pin_sck_direction = output   ; spi clock
+spi_init(SPI_MODE_11,SPI_RATE_FOSC_4) ; modo SPI, para la SD
+alias spi_master is spi_master_hw
+; setear pin cs SD
+alias sd_chip_select is pin_d2
+alias sd_chip_select_direction is pin_d2_direction
+sd_chip_select = high
+sd_chip_select_direction = output
+alias sd_force_spi_mode is spi_master_hw_set_mode_11 -- always set spi mode to 1,1
+const bit SD_ALWAYS_SET_SPI_MODE = TRUE
+const bit SD_DELAY_AFTER_WRITE = TRUE
+include sd_card
+sd_init()
+
+-- setup fat32 --
+-- include the required files
+-- change these vaues to save memory
+const bit FAT32_WRITE_LONG_FILE_NAMES = FALSE -- support writing of long file names
+const word FAT32_FILES_MAX = 20            -- the max number of files allowed in a directory
+const byte FAT32_FILE_NAME_SIZE = 80        -- choose max file_name size. if a file_name is longer the this, beginning chars will be cut. short file_names are 12 bytes.
+const FAT32_DIR_FRAGMENTS_TO_ALLOW = 5     -- uses 6 bytes memory per fragment allowed (0 not allowed)
+--                                          -- windows defrag does not defragment directories.
+const FAT32_FILE_FRAGMENTS_TO_ALLOW = 5    -- uses 8 bytes memory per fragment allowed (0 not allowed)
+--
+-- experts may change the following values
+;const byte FAT32_ENTRIES_MAX = 1           -- highest file entry address can be 256
+const byte FAT32_ENTRIES_MAX = 2            -- highest file entry address can be 65535
+const bit FAT32_USE_INTERNAL_MEMORY = TRUE -- Usar memoria interna para la lista de archivos
+IF FAT32_USE_INTERNAL_MEMORY == TRUE THEN
+   -- Setup a large array for storing sector data, This is where file_name locations are stored
+   const dword LARGE_ARRAY_2_SIZE = FAT32_FILES_MAX               -- choose number of array variables
+   const dword LARGE_ARRAY_2_VARIABLE_SIZE = FAT32_ENTRIES_MAX    -- choose bytes size of variables
+   include large_array_2                    -- include the array library
+   ALIAS fat32_entry_location is large_array_2
+END IF
+include fat32
+
+; ---------------------------------------------------------------------------------------------------------------
+
+alias led_rojo is pin_b7
+alias led_amarillo is pin_b6
+pin_b7_direction = output
+pin_b6_direction = output
+
+alias entrada is pin_b5
+pin_b5_direction = input
+
+var dword step1
+var word step2
+var byte file_number = 1
+
+const byte error1[] = "No ARCHIVO! (directorio?? no existe??)"
+
+; COMANDOS AT para el módulo, que permiten comunicarse con el server FTP
+
+; Seteos de base
+const byte reset[] = "AT+RST\r\n"                 ; reset del módulo
+const byte setear_modo[] = "AT+CWMODE=3\r\n"      ; setear modo cliente (no AP)
+const byte setear_dhcp[] = "AT+CWDHCP=2,1\r\n"    ; activar servidor DHCP interno
+const byte setear_mux[] = "AT+CIPMUX=1\r\n"       ; multiconexión
+; establece enlace TCP con el server ftp
+const byte iniciar_comunicacion[] = "AT+CIPSTART=4,"
+const byte tcp[] = "TCP"
+const byte ip_servidor[] = "192.168.4.2"
+const byte puerto_servidor[] = ",9090\r\n"
+; envía comandos USER y PASS
+const byte enviar_USER_PASS[] = "AT+CIPSEND=4,11\r\n"
+const byte usuario[] = "USER user\r\n"
+const byte contrasenia[] = "PASS pass\r\n"
+; abre un puerto local
+const byte puerto_datos_ftp[] = "AT+CIPSERVER=1,1027\r\n"    ; activar el puerto de datos local de la conexión FTP
+; reporta al server FTP sobre el puerto local
+const byte enviar_PORT[] = "AT+CIPSEND=4,22\r\n"
+const byte PORT[]="PORT 192,168,4,1,4,3\r\n\r\n"
+; envía nombre de archivo al server ftp
+const byte comando_nombre_archivo[] = "AT+CIPSEND=4,19\r\n"
+const byte enviar_STOR[]= "STOR "
+const byte fin_linea_stor[] = "\r\n\r\n"
+; para enviar tamaño del archivo al server ftp
+const byte enviar_datos[] = "AT+CIPSEND=0,"
+const byte cierre_string[] = "\r\n"
+; cierra las conexiones establecidas antes
+const byte cierra_conexion_datos[] = "AT+CIPCLOSE=0\r\n"
+const byte cierra_conexion_comandos[] = "AT+CIPCLOSE=4\r\n"
+
+; -------------------------------------------------------------------------------------------------------------------
+fat32_init(1)     ; inicializar librería fat32, 1ra partición primaria, directorio raíz "\"
+; leer info del directorio
+;fat32_print_directory(serial_data, FAT32_PRINT_ALL)
+; leer info del archivo
+fat32_read_file_info(1)
+; ======================================================================================================================
+
+led_rojo = on
+delay_100ms(10)
+led_rojo = off
+; ---------------------------------------------
+; Seteos iniciales del módulo WiFi
+delay_100ms(20)   ; esperamos 2 segs para que se inicie correctamente el módulo 8266
+print_string(serial_hw_data,setear_modo)
+delay_100ms(10)   ; acá debería volver un OK
+print_string(serial_hw_data,setear_dhcp)
+delay_100ms(10)   ; acá debería volver un OK
+print_string(serial_hw_data,setear_mux)
+delay_100ms(10)   ; acá debería volver un OK
+; --------------------------------------------
+;const byte start_string[] = "Envío WiFi de SD"
+;print_string(lcd,start_string)
+
+
+forever loop
+
+   if entrada == on then
+
+      print_string(serial_hw_data,puerto_datos_ftp)     ; activar puerto de datos local
+      delay_100ms(5)
+      print_string(serial_hw_data,iniciar_comunicacion)
+      serial_hw_data = 34   ; mandamos una comilla
+      print_string(serial_hw_data,tcp)
+      serial_hw_data = 34   ; mandamos una comilla
+      serial_hw_data = ","
+      serial_hw_data = 34   ; mandamos una comilla
+      print_string(serial_hw_data,ip_servidor)
+      serial_hw_data = 34   ; mandamos una comilla
+      print_string(serial_hw_data,puerto_servidor)
+      delay_100ms(30)           ; espera más larga para que se establezca el enlace TCP con el servidor FTP
+
+      print_string(serial_hw_data,enviar_USER_PASS)         ; enviar comando de nombre de usuario o contraseña al servidor
+      delay_100ms(5)
+      print_string(serial_hw_data,usuario)         ; enviar EL nombre de usuario al servidor
+      delay_100ms(5)
+
+      print_string(serial_hw_data,enviar_USER_PASS)     ; enviar comando de nombre de usuario o contraseña al servidor
+      delay_100ms(5)
+      print_string(serial_hw_data,contrasenia)     ; enviar LA contraseña de usuario al servidor
+      delay_100ms(5)
+
+      print_string(serial_hw_data,enviar_PORT)          ; indica que va a salir el comando de PORT
+      delay_100ms(5)
+      print_string(serial_hw_data,PORT)                 ; y acá va el comando, hacia el servidor remoto
+      delay_100ms(30)
+
+      print_string(serial_hw_data,comando_nombre_archivo)
+      delay_100ms(20)
+      ; Las siguientes 5 líneas arman y envían el nombre corto del archivo (formato DOS, 8.3)
+      print_string(serial_hw_data,enviar_STOR)
+      print_string(serial_hw_data,fat32_short_file_name)
+      serial_hw_data = "."
+      print_string(serial_hw_data,fat32_file_extension)
+      print_string(serial_hw_data,fin_linea_stor)
+      delay_100ms(10)
+      
+      ; El siguiente bloque toma el tamaño del archivo, lo convierte a ASCII y lo manda al ESP8266
+      print_string(serial_hw_data,enviar_datos)
+      print_dword_dec(serial_hw_data, fat32_file_size)
+      print_string(serial_hw_data,cierre_string)       ; terminar con CRLF
+      delay_100ms(10)
+
+      ; Leer datos del archivo y enviar.
+      ; Acá se calcula cuántos sectores ocupa el archivo.
+      var dword sectors_available
+      if (fat32_file_size) == (fat32_file_size / 512) * 512 then
+         sectors_available = (fat32_file_size / 512)
+      else
+         sectors_available = (fat32_file_size / 512) + 1
+      end if
+
+      ; Leer contenido archivo y enviar
+      if fat32_file_open(file_number) != 1 then   ; file open devuelve 1 si tuvo éxito
+;          print_string(lcd,error1)
+      end if
+      ; enviar los datos contenidos en el archivo, byte a byte, dentro de cada sector
+      for sectors_available using step1 loop
+         ; Leer UN sector del dispositivo (SD en este caso)
+         fat32_read_file_sector_number(step1)
+         ; Enviar el contenido del sector al ESP8266
+         for 512 using step2 loop
+            serial_hw_data = fat32_sector_buffer[step2]
+         end loop
+      end loop
+      fat32_file_close()                      ; se debe cerrar el archivo!!
+      delay_100ms(5)
+      print_string(serial_hw_data,cierra_conexion_datos)     ; en este punto el servidor remoto graba los datos y cierra el archivo
+      delay_100ms(5)
+
+      print_string(serial_hw_data,cierra_conexion_comandos)  ; terminar todo el proceso.
+      delay_100ms(5)
+
+   end if
+
+end loop
+
+
+
+
+
+

@@ -1,0 +1,95 @@
+Lista de Materiales AME216NWS
+
+
+         5    resistor 1/6 W    22  ohm
+         5    resistor 1/6 W    220 ohm
+         5    resistor 1/6 W    470 ohm
+         5    resistor 1/6 W    330 ohm           
+         5           "          560 ohm
+         10   resistor 1/6 W    1K
+         5    resistor 1/6 W    1K5
+         10   resistor 1/6 W    2K2
+         10          "          3K3
+         10          "          4K7
+         10          "          10K
+         5    resistor 1/6 W    22K
+         5           "          39K
+         10          "          47K
+         5           "          56K
+         5           "          150K
+         5           "          2M2
+
+         2    cerámico 22 pF
+         1    ceramico 10 nF
+         1    cerámico 33 nF
+         3    cerámico .1 uF
+         2    ceram multic .22 uF
+         2    ceram multic .33 uF
+         2    electrolítico 22 uF
+         2    electrolítico 100 uF
+         1    tantalio 100 uF
+
+         1    led 3 mm amarillo
+         3    led 3 mm rojo
+         2    led 3 mm verde
+         3    1N4148
+         1    zener 5V1
+
+         8    BC547  
+
+	 2    2N7000
+
+         1    LM7805
+         1    DS1307         
+         1    18F4620
+         1    LM317
+	 1    CD4066
+
+         1    pila CR2032
+
+         1    cristal 20 MHz
+         1    cristal 32.768 KHz
+
+         2    relé 5 Vdc doble inversor
+
+	 1    pulsador soft-touch
+
+         2    hembra impreso RJ-11
+
+         3    macho molex 2 pin 90
+         3    macho molex 3 pin 90
+         1    macho molex 9 pin 90
+         1    macho molex 7 pin 90
+         3    macho molex 2 pin 
+         1    macho molex 5 pin
+
+         1    zumbador 5 Vdc
+
+         1    zócalo pila CR2032
+         1    zócalo 2x4
+         1    zócalo 2x20
+         1    zócalo 2x7
+
+	 1    tira poste hembra doble para impreso
+
+         1    zócalo tarjeta micro SD
+                                        
+
+Resis  $22
+Caps   $12
+zócalo SD: $60
+otros zócalos: $18
+integrados: $205
+xtales: $12
+conectores: $15
+otros (trimpots, relé, zumbador, diodos, pila, transistores): $150
+
+Total ESTIMADO: $494
+
+Extra sensores: sensor de humedad ,sensor presión BMP180,sensor temperatura DS18b20,en total, aprox $220
+Extra transceptor: la versión SIN antena $50
+Extra ESP8266: $170
+Extras SIM900: SIM900, zócalo SIM, conector RP-SMA angulado hembra para impreso $580
+
+Nota: los precios de sensores, transceptor, esp8266, SIM900 son ML, habría que fijarse donde se compraron realmente y preguntar allí para afinar el valor definitivo.
+

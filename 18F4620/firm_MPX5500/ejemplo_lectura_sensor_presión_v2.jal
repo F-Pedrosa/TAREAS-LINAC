@@ -1,0 +1,319 @@
+; Firmware ejemplo de uso del sensor de presión, mostrando por display el valor medido (en hPa, atm o psi)
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+include delay
+include print
+include format
+
+alias zumbador is pin_e2
+pin_e2_direction = output
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+; -----------------------------------------------------------
+const bit ADC_HIGH_RESOLUTION = true
+const byte ADC_NCHANNEL = 1
+const byte ADC_NVREF = ADC_NO_EXT_VREF
+include adc
+adc_init
+; -----------------------------------------------------------
+; para mandar info a la PC serialmente durante fase de debugging
+alias serial_sw_tx_pin     is  pin_d1
+alias serial_sw_rx_pin     is  pin_d0
+pin_d1_direction = output
+pin_d0_direction = input
+const serial_sw_baudrate = 115_200
+include serial_software
+serial_sw_init()
+; -----------------------------------------------------------
+; Seteos de pines para el LCD, en ESTA plaqueta
+const byte LCD_ROWS   = 2     ; 2 líneas
+const byte LCD_CHARS  = 16    ; 16 chars por línea
+alias  lcd_rs  is  pin_b4     ; cmd/data select
+alias  lcd_en  is  pin_b5     ; enable
+
+alias  lcd_d4       is  pin_b0  ; lcd databit d4
+alias  lcd_d5       is  pin_b1  ; lcd databit d5
+alias  lcd_d6       is  pin_b2  ; lcd databit d6
+alias  lcd_d7       is  pin_b3  ; lcd databit d7
+
+pin_b5_direction = output
+pin_b4_direction = output
+pin_b3_direction = output
+pin_b2_direction = output
+pin_b1_direction = output
+pin_b0_direction = output
+include lcd_hd44780_4
+lcd_init()
+
+
+pin_a0_direction = input
+pin_a1_direction = input
+
+; -----------------------------------------------------------
+var byte anio
+var byte mes
+var byte dia
+var byte hora
+var byte minuto
+var byte segundo
+
+var byte digi0
+var byte digi1
+var byte digi2
+var byte digi3
+var byte digi4
+var byte digi5
+var byte digi6
+var byte digi7
+var byte digi8
+var byte digi9
+
+var word presion = 0
+var dword presion_a_mostrar = 0
+
+
+const byte mensaje_listo[] = "Listo!"
+; -----------------------------------------------------------
+; byte a 3 caracteres
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure word2digits( byte out dig4,byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+    const word c10000 = 10000
+    const word c1000 = 1000
+    const word c100 = 100
+    const word c10 = 10
+
+    dig4 = byte(numero / c10000)
+    numero = numero % c10000
+    dig3 = byte(numero / c1000)
+    numero = numero % c1000
+    dig2 = byte(numero / c100)
+    numero = numero % c100
+    dig1 = byte(numero / c10)
+    numero = numero % c10
+    dig0 = byte(numero)
+end procedure
+
+; dword a caracteres/dígitos
+procedure dword2digits(byte out dig9,byte out dig8,byte out dig7,byte out dig6,byte out dig5,byte out dig4, byte out dig3, byte out dig2, byte out dig1, byte out dig0, dword in numero ) is
+   const dword c1_000_000_000    = 1_000_000_000
+   const dword c100_000_000      = 100_000_000
+   const dword c10_000_000       = 10_000_000
+   const dword c1_000_000        = 1_000_000
+   const dword c100_000          = 100_000
+   const word  c10_000           = 10_000
+   const word  c1000             = 1000
+   const word  c100              = 100
+   const word  c10               = 10
+
+   dig9 = byte(numero / c1_000_000_000)
+   numero  = numero % c1_000_000_000
+   dig8 = byte(numero / c100_000_000)
+   numero  = numero % c100_000_000
+   dig7 = byte(numero / c10_000_000)
+   numero  = numero % c10_000_000
+   dig6 = byte(numero / c1_000_000)
+   numero  = numero % c1_000_000
+   dig5 = byte(numero / c100_000)
+   numero  = numero % c100_000
+   dig4 = byte(numero / c10_000)
+   numero  = numero % c10_000
+   dig3 = byte(numero / c1000)
+   numero  = numero % c1000
+   dig2 = byte(numero / c100)
+   numero  = numero % c100
+   dig1 = byte(numero / c10)
+   numero  = numero % c10
+   dig0 = byte(numero)
+end procedure
+
+
+function tabla_nueva (word in valor1) return word is
+if valor1 <= 1910 then
+   return 0
+elsif valor1 <= 1960 then
+   return 5
+elsif valor1 <= 2010 then
+   return 10
+elsif valor1 <= 2060 then
+   return 15
+elsif valor1 <= 2110 then
+   return 20
+elsif valor1 <= 2160 then
+   return 25
+elsif valor1 <= 2210 then
+   return 30
+elsif valor1 <= 2260 then
+   return 35
+elsif valor1 <= 2310 then
+   return 40
+elsif valor1 <= 2360 then
+   return 45
+elsif valor1 <= 2410 then
+   return 50
+elsif valor1 <= 2460 then
+   return 55
+elsif valor1 <= 2510 then
+   return 60
+elsif valor1 <= 2560 then
+   return 65
+elsif valor1 <= 2610 then
+   return 70
+elsif valor1 <= 2660 then
+   return 75
+elsif valor1 <= 2710 then
+   return 80
+elsif valor1 <= 2760 then
+   return 85
+elsif valor1 <= 2810 then
+   return 90
+elsif valor1 <= 2860 then
+   return 95
+elsif valor1 <= 2910 then
+   return 100
+elsif valor1 <= 2960 then
+   return 105
+elsif valor1 <= 3010 then
+   return 110
+elsif valor1 <= 3060 then
+   return 115
+elsif valor1 <= 3110 then
+   return 120
+elsif valor1 <= 3160 then
+   return 125
+elsif valor1 <= 3210 then
+   return 130
+elsif valor1 <= 3260 then
+   return 135
+elsif valor1 <= 3310 then
+   return 140
+elsif valor1 <= 3360 then
+   return 145
+elsif valor1 <= 3410 then
+   return 150
+elsif valor1 <= 3460 then
+   return 155
+elsif valor1 <= 3510 then
+   return 160
+elsif valor1 <= 3560 then
+   return 165
+elsif valor1 <= 3610 then
+   return 170
+elsif valor1 <= 3660 then
+   return 175
+elsif valor1 <= 3710 then
+   return 180
+elsif valor1 <= 3760 then
+   return 185
+elsif valor1 <= 3810 then
+   return 190
+elsif valor1 <= 3860 then
+   return 195
+elsif valor1 <= 3910 then
+   return 200
+end if
+end function
+
+
+
+; =========================================================================================================================
+zumbador = on
+testigo = on
+delay_100ms(5)
+zumbador = off
+testigo = off
+
+delay_100ms(5)
+
+lcd_clear_screen
+print_string(lcd,mensaje_listo)
+;print_string(serial_sw_data,mensaje_listo)
+;print_crlf(serial_sw_data)
+
+
+var word valor_tension = 0
+var word valor_cm_h20 = 0
+
+delay_100ms(20)
+
+forever loop
+   ;lcd_clear_screen
+   ; adquirir valor de presión
+   presion = adc_read_high_res(0)
+   delay_100ms(1)
+
+   ; convertir valor en voltios a equivalente en presión
+   ; SE ASUME UN MXP5500, cuyo alcance es 500 KPa, donde la tensión de salida es 4,7 V, 963 en número.
+   ; según hoja de datos el sensor da 0,2V a 0 KPa, lo cual equivale
+   ; a un valor numérico de aprox 41, ese es un offset que hay que restar.
+;   presion = presion - 41
+;   presion_a_mostrar = presion *  519     ; 519 es 0,519 q surge de 963/500, y la división en mil se hará por display
+   ; mostrar en LCD
+;   format_dword_dec(lcd, presion_a_mostrar, 3, 4)
+;   dword2digits(digi9,digi8,digi7,digi6,digi5,digi4,digi3,digi2,digi1,digi0,presion_a_mostrar)
+;   format_dword_dec(serial_sw_data, presion_a_mostrar, 3, 4)
+
+
+   lcd_cursor_position(0,0)
+
+   valor_tension = presion * 49   ; en realidad, por 0,0049 (=~5V/1024 ptos), pero jal no tiene aritmética decimal, sólo entera
+
+   valor_cm_h20 = tabla_nueva(valor_tension)
+   word2digits(digi4,digi3,digi2,digi1,digi0,valor_cm_h20)
+   lcd = digi2 + 48
+   lcd = digi1 + 48
+   lcd = digi0 + 48
+   lcd = " "
+   lcd = "c"
+   lcd = "m"
+   lcd = " "
+   lcd = " "
+
+   word2digits(digi4,digi3,digi2,digi1,digi0,valor_tension)
+   lcd = digi4 + 48
+   lcd = ","
+   lcd = digi3 + 48
+   lcd = digi2 + 48
+   lcd = digi1 + 48
+;   lcd = digi0 + 48
+   lcd = " "
+   lcd = "V"
+
+   delay_100ms(5)                ; cada 1/2 segundo
+
+   testigo = ! testigo           ; para tener una verificación de funcionamiento
+
+end loop
+
