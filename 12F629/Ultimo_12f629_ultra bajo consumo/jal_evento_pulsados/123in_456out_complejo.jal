@@ -1,0 +1,209 @@
+; Este firmware activa las salidas (llamadas 4, 5 y 6), correspondientes a los pines 7, 6 y 5 del 12F629, que en la plaqueta
+; armada en experimental corresponden a las del lado derecho, si se toma la entrada de alimentación, conector minimolex
+; como el lado de "abajo". De este lado "derecho", la primera desde "abajo" es la salida6, la siguiente la 5 y la de más
+; "arriba" a la derecha es la #4.
+
+; Al oprimir el pulsador #1, que del lado izquierdo el de más "arriba", se activa la salida #4, durante un tiempo, definido
+; en segundos, como constantes en su bloque correspondiente. Al oprimir el pulsador o entrada #2, se activa la salida #5
+; y al oprimir el pulsador de la entrada 3 se activa la salida #6
+
+; Cada salida puede tener tiempos diferentes y pueden ser concurrentes, es decir, si está encendida la salida4 y se
+; oprime el pulsador de la entrada que activa la salida 5, esta última se activa y su cuenta de tiempo es
+; INDEPENDIENTE de los tiempos de las otras. Esto ha sido verificado en numerosas pruebas.
+
+
+
+
+
+include 12f629
+
+pragma target clock 4_000_000      ; frecuencia oscilador interno
+
+pragma target OSC      INTOSC_NOCLKOUT
+pragma target BROWNOUT DISABLED
+pragma target MCLR     INTERNAL
+pragma target WDT      DISABLED
+--
+
+; Este código en ensamblador viene del ejemplo de uso de las JalLib para el 12F675
+; Y TIENE QUE ESTAR SIEMPRE PRESENTE.
+assembler
+  page call 0x3FF
+  bank movwf OSCCAL                ; valor de calibración de fábrica del oscilador interno
+end assembler
+
+enable_digital_io()                ; todos los pines disponibles como digitales
+include delay
+
+; Definiciones de direcciones de las líneas
+; acá se les pone nombre a las entradas (pines 2, 3 y 4 del PIC, respectivamente)
+pin_GP5_direction = INPUT
+alias entrada1 is pin_GP5                ; pin #2
+pin_GP4_direction = INPUT
+alias entrada2 is pin_GP4                ; pin #3
+pin_GP3_direction = INPUT
+alias entrada3 is pin_GP3                ; pin #4
+
+; acá se les pone nombre a las salidas (pines 5, 6 y 7 del PIC, respectivamente)
+pin_GP2_direction = OUTPUT
+alias salida6 is pin_GP2                 ; pin #5
+pin_GP1_direction = OUTPUT
+alias salida5 is pin_GP1                 ; pin #6
+pin_GP0_direction = OUTPUT
+alias salida4 is pin_GP0                 ; pin #7
+
+; salidas apagadas DESDE EL INICIO para impedir rarezas de encendido
+salida4 = off
+salida5 = off
+salida6 = off
+
+; banderas de las salidas
+var bit encender4 = false
+var bit encender5 = false
+var bit encender6 = false
+
+; tiempos de encendido en segundos, elegidos sólo para las pruebas
+const byte tiempo_encendido1 = 3
+const byte tiempo_encendido2 = 5
+const byte tiempo_encendido3 = 7
+
+; variables necesarias para llevar las cuentas de los tiempos.
+var byte tiempo1 = 0
+var byte tiempo2 = 0
+var byte tiempo3 = 0
+var byte tiempo_inicial1 = 0
+var byte tiempo_inicial2 = 0
+var byte tiempo_inicial3 = 0
+
+
+; Las siguientes instrucciones son registros internos que deben setearse correctamente, para entenderlo
+; del todo hay que ver en profundidad la hoja de datos
+OPTION_REG_NGPPU = false          ; este bit es activo negado, por alguna idea peregrina de los diseñadores
+; habilitar los pull-ups en las dos entradas que los tienen (la 3ra usa una R externa)
+; "pull-ups" son resistencias internas al PIC que sirven para definir bien el estado de un pin de entrada
+WPU_WPU5 = true
+WPU_WPU4 = true
+; habilitar la interrupción por cambio en las entradas
+IOC_IOC5 = true
+IOC_IOC4 = true
+IOC_IOC3 = true
+; habilitaciones generales de interrupciones
+OPTION_REG_INTEDG = false
+INTCON_GPIE = true
+INTCON_GIE = true
+
+-------------------------------------------------------------------
+; este bloque setea y arranca al Timer1 con el cual la librería rtc_isr_tmr1
+; producirá un incremento de una variable interna llamada seconds (que cuenta segundos)
+; y con la cual se controlará las cronizaciones.
+include rtc_isr_tmr1
+T1CON_T1CKPS   = 0b00      -- 1:1 prescaler
+T1CON_T1OSCEN  = off
+T1CON_TMR1CS   = off
+T1CON_TMR1ON   = on        -- TMR1 on
+PIE1_TMR1IE    = on        -- TMR1 interrupt enabled
+INTCON_PEIE    = on        -- peripheral interrupt enabled
+INTCON_GIE     = on        -- global interrupt enabled
+-------------------------------------------------------------------
+
+delay_100ms(10)
+INTCON_GPIF = low
+; salidas apagadas, REASEGURO DE INICIO (surgió de las pruebas)
+salida4 = off
+salida5 = off
+salida6 = off
+
+var bit terminado1 = true
+var bit terminado2 = true
+var bit terminado3 = true
+
+; Rutina de interrupción, que se ejecuta cuando se oprime CUALQUIER pulsador
+; y pone o saca las banderas correspondientes según sea el pulsador oprimido
+PROCEDURE rutina_isr() IS
+   PRAGMA INTERRUPT
+   if INTCON_GPIF then
+      INTCON_GPIF = low
+      if entrada1 == low then
+         encender4 = true
+         encender5 = false
+         encender6 = false
+         terminado1 = false
+      elsif entrada2 == low then
+         encender5 = true
+         encender4 = false
+         encender6 = false
+         terminado2 = false
+      elsif entrada3 == low then
+         encender6 = true
+         encender5 = false
+         encender4 = false
+         terminado3 = false
+      end if
+   end if
+END PROCEDURE
+
+
+
+
+
+; El lazo forever chequea las banderas manejadas por la interrupción y actúa en consecuencia, prendiendo o apagando
+; las salidas
+
+forever loop
+   ; Según la bandera, activa la salida e inicializa su contador de tiempo
+   if encender4 then
+      encender4 = false
+      salida4 = on
+      tiempo_inicial1 = seconds
+      INTCON_GPIF = low
+   end if
+   if encender5 then
+      encender5 = false
+      salida5 = on
+      tiempo_inicial2 = seconds
+      INTCON_GPIF = low
+   end if
+   if encender6 then
+      encender6 = false
+      salida6 = on
+      tiempo_inicial3 = seconds
+      INTCON_GPIF = low
+   end if
+
+   ; A medida que se van cumpliendo los tiempos (la variable seconds es incrementada por un timer interno)
+   ; se van apagando las salidas correspondientes.
+   tiempo1 = seconds
+   if tiempo1 >= (tiempo_inicial1 + tiempo_encendido1) then
+      salida4 = off
+      tiempo1 = 0
+      tiempo_inicial1 = 0
+      terminado1 = true
+   end if
+
+   tiempo2 = seconds
+   if tiempo2 >= (tiempo_inicial2 + tiempo_encendido2) then
+      salida5 = off
+      tiempo2 = 0
+      tiempo_inicial2 = 0
+      terminado2 = true
+   end if
+
+   tiempo3 = seconds
+   if tiempo3 >= (tiempo_inicial3 + tiempo_encendido3) then
+      salida6 = off
+      tiempo3 = 0
+      tiempo_inicial3 = 0
+      terminado3 = true
+   end if
+
+   ; Bloque que si están terminados los tiempos, se asegura que las salidas estén apagadas
+   ; y envía el micro a dormir para ahorrar energía.
+   if (terminado1 & terminado2 & terminado3) then
+      salida4 = off
+      salida5 = off
+      salida6 = off
+      asm sleep
+   end if
+end loop
+
+
