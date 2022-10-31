@@ -1,0 +1,64 @@
+; Firm para un 16F877, para probar la velocidad de respuesta de las fotoceldas
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+include delay
+
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+alias control is pin_c1
+pin_c1_direction = output
+
+;alias deteccion is pin_b5
+;pin_b5_direction = input
+
+
+
+; ==============================================================================================
+
+control = off
+testigo = off
+testigo = on
+delay_100ms(15)
+testigo = off
+
+forever loop
+
+   control = on
+   delay_1ms(10)
+   control = off
+   delay_1ms(10)
+   
+end loop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

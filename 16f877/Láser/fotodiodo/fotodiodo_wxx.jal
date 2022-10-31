@@ -1,0 +1,37 @@
+; Firm para un 16F877 (en una Wxx 2x4), para probar la velocidad de respuesta del fototransistor
+; en conjunto con una AME2 como receptor grabando tramas.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+include delay
+
+alias entrada1 is pin_b0
+pin_b0_direction = input
+
+alias control_laser is pin_c4
+pin_c4_direction = output
+
+; ==============================================================================================
+
+control_laser = off
+
+forever loop
+
+;   Bloque para generación de un tren de pulsos de 0,5 ms de duración
+;   en la salida que controla al láser, para ajustar fototransistor
+   control_laser = on
+   delay_10us(50)    ; media milésima
+   control_laser = off
+   delay_10us(50)    ; media milésima
+
+
+end loop
+

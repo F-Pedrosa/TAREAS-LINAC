@@ -1,0 +1,71 @@
+; Firm para un 16F877 (en una Wxx 2x4), para probar la velocidad de respuesta de las fotoceldas
+; en conjunto con una AME2 como receptor grabando tramas.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+include delay
+
+alias entrada1 is pin_b0
+pin_b0_direction = input
+
+alias control_laser is pin_c4
+pin_c4_direction = output
+
+
+
+
+; ==============================================================================================
+
+control_laser = off
+
+forever loop
+
+
+
+;   Bloque para generación de un tren de pulsos de 10 ms de duración
+;   en la salida que controla al láser, para ajustar la fotocelda
+;   control_laser = on
+;   delay_1ms(10)
+;   control_laser = off
+;   delay_1ms(10)
+
+
+;   Bloque para generación de un tren de pulsos de 1 ms de duración
+;   en la salida que controla al láser, para ajustar fototransistor
+   control_laser = on
+;   delay_1ms(1)
+   delay_10us(50)    ; media milésima
+   control_laser = off
+;   delay_1ms(1)
+   delay_10us(50)    ; media milésima
+
+
+;;   Si llega una activación por la entrada #1, hacer un tren de pulsos de diferente ancho
+;   if entrada1 == 1 then
+;      control_laser = on
+;      delay_1ms(10)                ; 1 centésimas
+;      control_laser = off
+;      delay_1ms(50)                ; espacio
+;      control_laser = on
+;      delay_1ms(30)                ; 3 centésimas
+;      control_laser = off
+;      delay_1ms(50)                ; espacio
+;      control_laser = on
+;      delay_1ms(20)                ; 2 centésimas
+;      control_laser = off
+;
+;   delay_100ms(10)       ; para evitar rebotes y dobles disparos
+;
+;   end if
+
+
+end loop
+

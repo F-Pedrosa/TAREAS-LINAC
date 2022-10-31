@@ -1,0 +1,339 @@
+; Firm para un 16F877 (en una AME2), para detectar (y medir) interrupciones en un haz láser
+; grabando tramas con fecha/hora/centésimas.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+; todas las entradas se usarán como I/O digitales, no se usará nada analógico
+enable_digital_io()
+
+include delay
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+alias entrada_fotocelda is pin_a0
+pin_a0_direction = input
+
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+
+; Para comunicaciones seriales x hardware
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+
+; Pines I2C
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; Constantes I2C
+const word _i2c_bus_speed = 4 ; 400 kHz
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; Incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+
+; variables para la lectura de fecha/hora del RTC
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+; variable que contendrá las milésimas de segundo de duración del pulso
+var byte contador = 0
+; variable que contendrá las milésimas de segundo de arranque del pulso
+var byte inicio = 0
+
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+var word direccion = 0
+
+; ================================ PROCEDIMIENTOS =====================================
+
+; Los siguientes alias se agregan para corregir incompatibilidades de
+; nombres entre diferentes versiones de librarías (JalLib).
+alias TMR1IE is PIE1_TMR1IE
+alias TMR1if is PIR1_TMR1IF
+; ========================================== INTERRUPCIÓN TIMER1 =================================
+OPTION_REG = 0
+; Habilitar interrupciones de periféricos (entre ellos TIMER1)
+INTCON = 0b_1100_0000
+; Setear TMR1 en modo free run, con oscilador interno y sin prescaler
+T1CON = 0b0000_0101
+; TIMER1 deshabilitado al inicio
+TMR1IE = off
+; valores de inicialización correctos para Ttimer1 = 10 ms
+const byte InitTMR1H = 60
+const byte InitTMR1L = 176
+var bit Flag_tmr1 = false
+; rutina interrupción TMR1 propiamente dicha, que se ejecuta cada 10 msegs.
+procedure TMR1_ISR is
+  pragma interrupt
+  if TMR1if then
+     ; Resetear bandera
+     TMR1if = low
+     ; Reinicializar TMR1
+     asm clrf TMR1L
+     TMR1H = InitTMR1H
+     TMR1L = InitTMR1L
+     Flag_tmr1 = true
+  end if
+end procedure
+; ============================================================================================
+
+function digi2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+procedure bin2digits( byte out digi2, byte out digi1, byte out digi0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   digi2 = centena
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = numero
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+;   ;----------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+;   ;----------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+;   ;----------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+;   ; -------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+;   ; -------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+;   ; -------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; -------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+
+; El siguiente bloque de código está comentado porque al campo de los segundos lo va a armar el PIC, a partir de las
+; centésimas que cuenta usando la interrupción de Timer1
+   ; -------------------------
+;   leer_rtc(0,digito1,digito0)
+;   digito1 = digito1 * 10
+;   segundo = digito1 + digito0
+
+end procedure
+
+
+procedure escribir_eeprom( byte in eepr_pos, word in address, byte in dato ) is
+; Rutina para escribir un byte en dirección determinada de una EEPROM en particular.
+   var byte AX[2] at address
+   var bit resul = false
+   ; primero, enviar el id de la EEPROM
+   ; su dirección específica y el bit de R/W.
+   I2C_start()
+   resul = i2c_transmit_byte(eepr_pos)
+   ; byte alto dirección
+   resul = i2c_transmit_byte(AX[1])
+   ; byte bajo dirección
+   resul = i2c_transmit_byte(AX[0])
+   ; Enviar dato a escribir
+   resul = i2c_transmit_byte(dato)
+   I2C_stop()
+   delay_1ms(6)   ; para darle tiempo a la EEPROM de escribir
+end procedure
+
+
+; Rutina para escribir  bytes en determinada EEPROM, usando la característica de
+; escritura por páginas de las eeproms, más rápido que byte a byte
+procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+   var byte AX[2] at address
+   var bit resul
+   I2C_start()
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   resul = i2c_transmit_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   resul = i2c_transmit_byte(AX[1])
+   resul = i2c_transmit_byte(AX[0])
+   ; Enviar "página" de bytes (datos) a grabar en eeprom
+   ; empezando por fecha y hora
+   resul = i2c_transmit_byte(anio)
+   resul = i2c_transmit_byte(mes)
+   resul = i2c_transmit_byte(dia)
+   resul = i2c_transmit_byte(hora)
+   resul = i2c_transmit_byte(minuto)
+   resul = i2c_transmit_byte(segundo)
+   resul = i2c_transmit_byte(inicio)
+   resul = i2c_transmit_byte(contador)
+   I2C_stop()
+   delay_1ms(4)
+end procedure
+
+;; Rutina para escribir la trama de 8 bytes en determinada EEPROM
+;procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+;   ; ATENCIÓN!!!!
+;   ; Este procedimiento escribe la trama byte a byte Y NO POR PÁGINA!!!!
+;   escribir_eeprom(eepr_pos,address,anio)
+;   address = address + 1
+;   escribir_eeprom(eepr_pos,address,mes)
+;   address = address + 1
+;   escribir_eeprom(eepr_pos,address,dia)
+;   address = address + 1
+;   escribir_eeprom(eepr_pos,address,hora)
+;   address = address + 1
+;   escribir_eeprom(eepr_pos,address,minuto)
+;   address = address + 1
+;   escribir_eeprom(eepr_pos,address,segundo)
+;   address = address + 1
+;   inicio = inicio/10
+;   escribir_eeprom(eepr_pos,address,byte(inicio))
+;   address = address + 1
+;   escribir_eeprom(eepr_pos,address,contador)  ; para completar una trama de 8 bytes, un 0 al final...
+;   address = address + 1
+;end procedure
+
+; ================================================== PRINCIPAL ================================================================
+
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+testigo = on
+delay_100ms(10)              ; 1 seg
+testigo = off
+delay_100ms( 2 )
+
+var bit bandera = false
+var byte segundo_inicial = 0
+
+; Bloque para sincronizar arranque interrupción Timer1 con la transición del registro de segundos del RTC
+leer_rtc(0,digi1,digi0)
+digi1 = digi1 * 10
+segundo_inicial = digi1 + digi0
+while segundo == segundo_inicial loop
+   leer_rtc(0,digi1,digi0)
+   digi1 = digi1 * 10
+   segundo = digi1 + digi0
+end loop
+; Ahora activar interrupción Timer1, estará aproximadamente en sincronía con el RTC.
+TMR1IE = on
+inicio = 0
+
+; inicializar variable segundos desde el RTC, la cual será después incrementada sólo por el PIC.
+leer_rtc(0,digi1,digi0)
+digi1 = digi1 * 10
+segundo = digi1 + digi0
+
+forever loop
+
+    ; ----------------------------------------------------------------------------------------------------
+    ; Bloque que se ejecuta al dispararse la interrupción de Timer1, cada mseg.
+    ; La interrupción se usará para cronizar el arranque del pulso que llega desde la Wxx.
+    if Flag_tmr1 then
+       if inicio == 99 then
+          inicio = 0
+          if segundo == 59 then
+             segundo = 0
+          else
+             segundo = segundo + 1
+          end if
+       else
+          inicio = inicio + 1
+       end if
+       Flag_tmr1 = false
+    end if
+    ; ----------------------------------------------------------------------------------------------------
+
+    ; ----------------------------------------------------------------------------------------------------
+    ; Para las pruebas, detectar y medir el encendido del haz (pulsos generados por la Wxx).
+    if entrada_fotocelda == 1 then
+       obtener_fecha_hora
+       while entrada_fotocelda == 1 loop
+            delay_1ms(1)
+            contador = contador + 1
+            if contador > 99 then
+               contador = 0
+               exit loop
+            end if
+            bandera = true
+       end loop
+    end if
+    if bandera then
+       bandera = false
+       ; grabar en eeprom trama
+       escribir_trama_eeprom(0b1010_0000,direccion)
+       direccion = direccion + 8
+       contador = 0
+    end if
+    ; ----------------------------------------------------------------------------------------------------
+    
+end loop
