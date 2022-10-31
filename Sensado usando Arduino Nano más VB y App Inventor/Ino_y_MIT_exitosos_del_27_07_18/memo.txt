@@ -1,0 +1,3 @@
+Esta versión sólo pide y manda el archivo completo.
+No existe DatosF de esta versión, sólo DatosP.
+Esta versión funciona bien.

@@ -1,0 +1,23 @@
+30.07.18
+
+
+
+DatosFull.apk
+Esta versión pide y manda el archivo completo además pide y manda el archivo bitácora de alimentación. También borra la SD.
+Esta versión funciona aparentemente bien.
+El icono en pantalla del cel se llamará DatosF
+NO está habilitada la bitácora de pedidos en el INO correspondiente, habrá que seguir probando para sacar un error.
+
+En la opción de borrado de la SD en el DatosFull el bipeo de la AMENAN es muy largo, aprox 8 segundos, eso es normal e independiente de la longitud de los archivos borrados.
+Asimismo, el mensaje de fin de transmisión NO se produce nunca después de borrar en esta versión del firmware, bug a corregir en algún momento, pero, está comprobado que el software funciona normalmente a pesar de este bug.
+
+
+DatosP2.apk
+Esta versión pide y manda el archivo completo.
+El icono en pantalla del cel se llamará DatosP2.
+
+Corresponde al ino llamado: _300718_despierto_grabafull_mensual_bita_enviafull_borra.ino
+
+En la subcarpeta llamada INOs_nodos se encuentran las versiones del INO anterior, con los nombres adecuados para cada uno de los nodos.
+
+Acompaña la AMENAN T1 con un firmware INO igual que el antes mencionado pero con un tiempo de lectura de sensores de 2 minutos.
