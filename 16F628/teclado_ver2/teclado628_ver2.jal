@@ -1,0 +1,250 @@
+; ---------------------------------------------------------------
+; Controlar un teclado de matriz con un PIC16f628a, y comunicarse
+; con un 16F877 serialmente.
+; En esta versión el 16F628 pasa directamente el ASCII de la tecla
+; pulsada hacia la AME2, donde el 16F877 se encargará de analizarla
+; y de actuar en consecuencia
+;
+; ---------------------------------------------------------------
+
+include 16f628a
+
+; Se asume un oscilador interno de 4 MHz
+pragma target OSC INTOSC_NOCLKOUT
+pragma target clock 4_000_000
+
+pragma target WDT  disabled
+pragma target LVP  disabled
+pragma target MCLR internal
+
+; Librería com. serial x hardware, predefiniendo algunas constantes
+const bit usart_hw_serial = true
+const serial_hw_baudrate = 9_600
+include serial_hardware
+
+enable_digital_io()                ; deshabilitar comparadores analógicos
+
+include delay
+
+; Definir pines de filas y columnas de la matriz, y su dirección
+
+; Filas
+var bit fila1 is pin_b7
+var bit fila2 is pin_b6
+var bit fila3 is pin_b5
+var bit fila4 is pin_b4
+; direcciones
+pin_b7_direction = output
+pin_b6_direction = output
+pin_b5_direction = output
+pin_b4_direction = output
+
+; Columnas
+var bit colu1 is pin_a1
+var bit colu2 is pin_a2
+var bit colu3 is pin_a3
+; direcciones
+pin_a1_direction = input
+pin_a2_direction = input
+pin_a3_direction = input
+
+; otros pines
+var bit testigo is pin_a0
+pin_a0_direction = output
+
+; NOTA: los pines B.1 y B.2 están asignados por hardware a la
+; comunicación serie.
+
+; variables globales
+var byte ascii = 0
+var byte dato = 0
+var byte y = 0
+
+; =========================================================================================
+
+function detecta_tecla return byte is
+   ; poner la fila en 0
+   fila1 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila1 = on
+      delay_1ms(30)
+      ; devolver código
+      return 1
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila1 = on
+      delay_1ms(30)
+      ; devolver código
+      return 2
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila1 = on
+      delay_1ms(30)
+      ; devolver código
+      return 3
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+; ---------------------------
+   ; poner la fila en 0
+   fila2 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila2 = on
+      delay_1ms(30)
+      ; devolver código
+      return 4
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila2 = on
+      delay_1ms(30)
+      ; devolver código
+      return 5
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila2 = on
+      delay_1ms(30)
+      ; devolver código
+      return 6
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+; ---------------------------
+   ; poner la fila en 0
+   fila3 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila3 = on
+      delay_1ms(30)
+      ; devolver código
+      return 7
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila3 = on
+      delay_1ms(30)
+      ; devolver código
+      return 8
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila3 = on
+      delay_1ms(30)
+      ; devolver código
+      return 9
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+; ---------------------------
+   ; poner la fila en 0
+   fila4 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila4 = on
+      delay_1ms(30)
+      ; devolver código
+      return 10
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila4 = on
+      delay_1ms(30)
+      ; devolver código
+      return 0
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila4 = on
+      delay_1ms(30)
+      ; devolver código
+      return 12
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+   return 17
+
+end function
+
+
+; ================================== PRINCIPAL ============================================
+
+; Todas las salidas de fila del teclado a estado alto
+fila1 = on
+fila2 = on
+fila3 = on
+fila4 = on
+
+; Inicializar interfaz serial x hardware
+serial_hw_init()
+
+; destellar testigo
+testigo = on
+; 1 segundo en total
+delay_100ms(10)
+testigo = off
+; medio segundo
+delay_100ms(5)
+
+forever loop
+
+    ; escanear teclado
+    ascii = detecta_tecla
+
+    delay_1ms(50)
+
+    ; si hubo actividad de teclado, ascii es distinto de 17 (ver código de la función)...
+    if ascii != 17 then
+       if ascii == 10 then
+          ; la tecla asterisco
+          serial_hw_write("*")
+       elsif ascii == 12 then
+          ; la tecla numeral
+          serial_hw_write("#")
+       else
+          serial_hw_write(ascii + 48)
+       end if
+    end if
+
+end loop
+

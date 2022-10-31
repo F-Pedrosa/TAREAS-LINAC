@@ -1,0 +1,99 @@
+; este es el que transmite
+include 16f628a
+pragma target clock 20_000_000     ; frecuencia reloj
+pragma target OSC  HS
+pragma target WDT  disabled        ; no watchdog
+pragma target LVP  disabled        ; no Low Voltage Programming
+pragma target MCLR internal        ; pin de reset como i/o
+
+enable_digital_io()                -- make all pins digital I/O
+
+include delay
+
+const serial_hw_baudrate = 57_600
+include serial_hardware
+serial_hw_init()
+
+alias salida1 is pin_a1
+alias led     is pin_a2
+alias entrada_detector is pin_b4
+
+pin_a1_direction =  output
+pin_a2_direction =  output
+pin_b4_direction =  input
+
+
+procedure word2digits( byte out dig4, byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var word dec_miles = 0
+   var word miles = 0
+   var byte centena = 0
+   var byte decena = 0
+
+   dec_miles = numero/10000
+   dig4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = byte(numero / 100)
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+
+var word cuenta = 0
+var byte digi0 = 0
+var byte digi1 = 0
+var byte digi2 = 0
+var byte digi3 = 0
+var byte digi4 = 0
+
+
+salida1 = off
+led = off
+led = on
+delay_100ms(10)
+led = off
+
+
+
+
+forever loop
+
+   ; pulso de 40 KHz, habilitando al generador 555 durante 300 usegs, 12 ciclos.
+   salida1 = on
+   delay_10us(30)
+   salida1 = off
+   
+   ; entrada pasa a 1 si el detector detecta el  pulso rebotado
+   while entrada_detector == 0 loop
+       delay_1us
+       cuenta = cuenta + 1
+   end loop
+   
+   ; reportar resultado a la PC
+   word2digits(digi4,digi3,digi2,digi1,digi0, cuenta )
+   serial_hw_write(digi3+48)
+   serial_hw_write(digi2+48)
+   serial_hw_write(digi1+48)
+   serial_hw_write(digi0+48)
+
+   serial_hw_write(13)
+   serial_hw_write(10)
+
+   cuenta = 0
+
+   delay_100ms(10)          ; esperar un segundo
+
+end loop
+
+

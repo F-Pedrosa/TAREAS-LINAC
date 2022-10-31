@@ -1,0 +1,235 @@
+; Firmware para plaqueta AME2 con LCD y "teclado" con 16F628A, via RS232 x hardware.
+; Esta es la versión que recibe las teclas enviadas una a una desde el 628 del
+; teclado, las muestra y entiende al "#" como un ENTER.
+; El análisis de lo tecleado y la acción correspondiente se procesan diferente
+; que en la primera versión.
+
+; ------------------------------------------------
+; Biblioteca de definiciones generales básicas.
+include 16F877a
+; Se asume un cristal de 20 MHz entre pines OSC1 y OSC2.
+pragma target OSC HS               ; HS cristal
+pragma target clock 20_000_000     ; frecuencia oscilador
+--
+pragma target WDT  disabled
+pragma target LVP  disabled
+--
+enable_digital_io()                ; deshabilitar convertidor A/D
+; -------------------------------------------------
+include delay
+; -------------------------------------------------
+
+; ================================ LIB. PARA USO LCD =================================
+;Predefinición de constantes y variables necesarias y del hardware.
+const LCD_number_of_display_lines      = 2
+const LCD_number_of_display_characters = 16
+var volatile bit HD44780_Enable_pin is pin_b5
+var volatile bit HD44780_Enable_direction is pin_b5_direction
+var volatile bit HD44780_DataCmd_pin is pin_b4
+var volatile bit HD44780_DataCmd_direction is pin_b4_direction
+var volatile bit HD44780_b4_pin is pin_b0
+var volatile bit HD44780_b4_direction is pin_b0_direction
+var volatile bit HD44780_b5_pin is pin_b1
+var volatile bit HD44780_b5_direction is pin_b1_direction
+var volatile bit HD44780_b6_pin is pin_b2
+var volatile bit HD44780_b6_direction is pin_b2_direction
+var volatile bit HD44780_b7_pin is pin_b3
+var volatile bit HD44780_b7_direction is pin_b3_direction
+; Ahora incluir la biblioteca de uso del LCD.
+include hd44780_4
+; Posdefinición de variable
+var volatile byte lcd is _lcd
+; Incluir biblioteca de formateado e impresión de cadenas de texto.
+include print
+
+; Librería com. serial x hardware, predefiniendo algunas constantes
+const bit usart_hw_serial = true
+const serial_hw_baudrate = 9_600
+include serial_hardware
+; ====================================================================================
+
+; -------------------------------------------------------------------------------
+; Declaraciones generales de direcciones de los pines a usarse.
+; Setear todos los pines del puerto B como salidas (acá se conecta el LCD).
+pin_b0_direction = output
+pin_b1_direction = output
+pin_b2_direction = output
+pin_b3_direction = output
+pin_b4_direction = output
+pin_b5_direction = output
+pin_b6_direction = output
+pin_b7_direction = output
+
+
+pin_d0_direction = output    ; control relé pila RTC
+pin_d1_direction = input     ; sensado de lector conectado
+pin_c1_direction = input
+
+; Aliases de pines
+var bit testigo is pin_b7
+var bit rele_pila_rtc is pin_d0
+var bit pin_lector_conectado is pin_d1
+
+; Variables globales
+; -------------------
+var byte dato = 0
+; -------------------
+var byte y = 0
+var byte arreglo[20] = "                    "
+
+; NOTA IMPORTANTE: para impedir scrollings y sobreescrituras indeseadas
+; tratar en lo posible de limitar los strings del LCD a 16 caracteres, en total.
+const byte mensaje_lcd3[] = "Sistema OK..."
+
+const byte msg1[] = "1234"
+const byte msg2[] = "4321"
+const byte msg3[] = "67890"
+const byte msg4[] = "55"
+
+const byte msg_ok[] = "Coincide!"
+const byte msg_fail[] = "No coincide!"
+
+;================================ PROCEDIMIENTOS ======================================
+procedure lector_conectado is
+  if pin_lector_conectado then
+     ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+     ; de interrupciones y otros efectos extraños.
+     ADC_off
+     ; Y también asegurarse que los pines del bus I2C estén "desconectados"
+     pin_c3_direction = input
+     pin_c4_direction = input
+     ; un pitido cortito como señal de que se va a apagar el PIC
+     testigo = on
+     delay_100ms( 2 )              ; 0,2 segs de pitido
+     testigo = off
+     delay_100ms( 2 )
+     ; Apagar los pines que controlan el display, para evitar cosas espúreas
+     portb = off
+     ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+     asm clrwdt
+     ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+     asm sleep
+  end if
+end procedure
+
+function string_compare (byte in string1[], byte in string2[]) return bit is
+   var byte x = 0
+
+   for count(string1) using x loop
+       if string1[x] != string2[x] then
+          return 0
+       end if
+   end loop
+
+   return 1
+
+end function
+
+procedure mensaje_coincidencia is
+   lcd_cursor_pos = 40
+   print_string(lcd,msg_ok)
+   lcd_cursor_pos = 0
+end procedure
+
+
+procedure mensaje_nocoin is
+   lcd_cursor_pos = 40
+   print_string(lcd,msg_fail)
+   lcd_cursor_pos = 0
+end procedure
+
+
+
+; ===================================== PRINCIPAL =======================================
+
+; Si está conectado el lector de eeprom, apagar el micro. ¡Esta rutina DEBE SER
+; la primera en ejecutarse!
+lector_conectado
+; -------------------------------------------------------------------------------
+; Si el lector de eeprom NO está conectado, a partir de este punto comienzan
+; las inicializaciones y chequeos de un funcionamiento normal.
+; -------------------------------------------------------------------------------
+; Deshabilitar hacer ADC
+ADC_off
+;---------
+; Inicialización del LCD
+lcd_init
+; Inicialización interfaz serial x hardware
+serial_hw_init()
+
+;---------
+; Asegurarse que el pin que controla el relé de la pila del RTC esté desactivado.
+rele_pila_rtc = off
+;---------
+; Encendido y apagado del led/zumbador testigo de arranque.
+testigo = on
+delay_100ms( 5 )
+testigo = off
+delay_100ms( 5 )
+testigo = on
+delay_100ms( 5 )
+testigo = off
+;---------
+
+; no mostrar cursor
+lcd_cursor = off
+
+; Limpiar LCD
+lcd_clearscreen
+; Imprimir mensaje en lcd usando una función de la librería print
+; la función clearscreen deja el cursor al principio de la 2da fila.
+print_string(lcd,mensaje_lcd3)
+; retardo para poder verlo
+delay_100ms(30)
+; limpiar
+lcd_clearscreen
+; reposicionar al principio de la primera fila...
+lcd_cursor_pos = 0
+
+forever loop
+
+   ; si llegan datos por la interfaz serial...
+   if serial_hw_read(dato) then
+      ; si el dato es el caracter "#", es la marca de fin de tecleo, se procede
+      ; a evaluar la secuencia recibida.
+      if dato != "#" then
+         arreglo[y] = dato
+         y = y + 1
+         ; mostrar en display
+         LCD_char = dato
+      else
+         ; y si llegó el "#", ponerlo como último elemento del arreglo
+         arreglo[y] = dato
+
+         ; ------------------------------------------------------------
+         ; En este bloque se comparan las diferentes strings y se pone
+         ; mensaje si así lo son.
+         if string_compare(msg1,arreglo) then
+            mensaje_coincidencia
+         elsif string_compare(msg2,arreglo) then
+            mensaje_coincidencia
+         elsif string_compare(msg3,arreglo) then
+            mensaje_coincidencia
+         elsif string_compare(msg4,arreglo) then
+            mensaje_coincidencia
+         else
+            mensaje_nocoin
+         end if
+         ; ------------------------------------------------------------
+
+         ; detectar secuencia orden limpieza display (primero un * y después el #)
+         if arreglo[y] == "#" then
+            if arreglo[y-1] == "*" then
+               ; borrar el display
+               lcd_clearscreen
+               ; y dejar cursor en 1ra fila
+               lcd_cursor_pos = 0
+            end if
+         end if
+         y = 0
+
+      end if
+   end if
+end loop
+
+

@@ -1,0 +1,37 @@
+; este es el que transmite
+include 16f628a
+pragma target clock 20_000_000     ; frecuencia reloj
+pragma target OSC  HS
+pragma target WDT  disabled        ; no watchdog
+pragma target LVP  disabled        ; no Low Voltage Programming
+pragma target MCLR internal        ; pin de reset como i/o
+
+enable_digital_io()                -- make all pins digital I/O
+
+include delay
+
+alias salida1 is pin_a1
+alias led     is pin_a2
+
+pin_a1_direction =  output
+pin_a2_direction =  output
+
+salida1 = off
+led = off
+led = on
+delay_100ms(10)
+led = off
+
+
+forever loop
+
+   salida1 = on
+   delay_9us()
+   delay_1us()
+   salida1 = off
+   delay_9us()
+   delay_1us()
+
+end loop
+
+
