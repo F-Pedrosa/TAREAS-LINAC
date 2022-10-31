@@ -1,0 +1,644 @@
+; Firmware para plaqueta AME2 del sistema, en el cual se probará
+; la librería para el LCD, y la librería "print2 de manejo de strings.
+
+; ------------------------------------------------
+; Biblioteca de definiciones generales básicas.
+include jal_v2_16F877
+; -------------------------------------------------
+
+; ================================ LIB. PARA USO LCD =================================
+; ====================================================================================
+;Predefinición de constantes y variables necesarias y del hardware.
+const LCD_number_of_display_lines      = 2
+const LCD_number_of_display_characters = 16
+var volatile bit HD44780_Enable_pin is pin_b5
+var volatile bit HD44780_Enable_direction is pin_b5_direction
+var volatile bit HD44780_DataCmd_pin is pin_b4
+var volatile bit HD44780_DataCmd_direction is pin_b4_direction
+var volatile bit HD44780_b4_pin is pin_b0
+var volatile bit HD44780_b4_direction is pin_b0_direction
+var volatile bit HD44780_b5_pin is pin_b1
+var volatile bit HD44780_b5_direction is pin_b1_direction
+var volatile bit HD44780_b6_pin is pin_b2
+var volatile bit HD44780_b6_direction is pin_b2_direction
+var volatile bit HD44780_b7_pin is pin_b3
+var volatile bit HD44780_b7_direction is pin_b3_direction
+; Ahora incluir la biblioteca de uso del LCD.
+include hd44780_4
+; Posdefinición de variable
+var volatile byte lcd is _lcd
+; Incluir biblioteca de formateado e impresión de cadenas de texto.
+include print
+; ====================================================================================
+; ====================================================================================
+
+; ----------------------------------------------
+; Inclusión biblioteca I2C por hardware
+include i2c_hardware_fep
+; Variables necesarias para la biblioteca, están declaradas en ella.
+;_I2C_bus_speed = 10        equivale a un bus de 1 MHz
+;_I2C_bus_speed = 4         equivale a un bus de 400 KHz
+; cualquier otro valor fija el bus I2C a 100 KHz
+_I2C_bus_speed     = 1
+_I2C_level         = 1       ; <-- establece protocolo I2C
+
+; -------------------------------------------------------------------------------
+; Declaraciones generales de direcciones de los pines a usarse.
+; Setear todos los pines del puerto B como salidas (acá se conecta el LCD).
+port_b_direction = all_output
+pin_d0_direction = output    ; control relé pila RTC
+pin_d1_direction = input     ; sensado de lector conectado
+pin_c1_direction = input
+
+; Aliases de pines
+var bit testigo is pin_b7
+var bit rele_pila_rtc is pin_d0
+var bit pin_lector_conectado is pin_d1
+
+
+var byte indice = 0
+; ----------------------------------------------
+; Arreglo de constantes con el byte de ID para cada eeprom dentro del banco
+const byte eeproms[] = { 0b1010_0000, 0b1010_0010, 0b1010_0100, 0b1010_0110, 0b1010_1000, 0b1010_1010, 0b1010_1100, 0b1010_1110 }
+; Lista de tamaños posibles de EEPROMs, en KBytes.
+const word tamanio0 = 4_096
+const word tamanio1 = 8_192
+const word tamanio2 = 16_384
+const word tamanio3 = 32_768
+const word tamanio4 = 65_536
+; ----------------------------------------------
+; Variables globales
+; -------------------
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+; -------------------
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+; -------------------
+; Arreglo de bytes que tendrá el tamaño de las eeprom.
+; Si queda en 0 se entiende que no hay eeprom en esa posición.
+var byte size[] = {0,0,0,0,0,0,0,0}
+; Para direccionado INTERNO de las EEPROMs...
+var word direccion = 0
+; Para valores máximos de la dirección de las eeprom y además posiciones de las eeproms.
+var word tope = 0       ; máxima dirección a usar en UNA eeprom dada
+var byte posicion = 0   ; en cual eeprom corresponde escribir
+var byte ultima = 0     ; y cual es la posición de la última del banco
+; Para el valor leído via ADC desde la pila del RTC
+var byte tension_pila = 0
+
+
+var byte indice_dig = 0
+var byte contador = 0
+
+
+var byte num_orden_alto = 0
+var byte num_orden_bajo = 0
+var byte num_esclavo = 0
+var byte num_linea = 0
+var byte estado_valor = 0
+
+; ============================ PROCEDIMIENTO INTERRUPCIÓN TIMER1 =============================
+OPTION_REG = 0
+; Habilitar interrupciones de periféricos (entre ellos TIMER1)
+INTCON = 0b_1100_0000
+; Setear TMR1 en modo free run, con oscilador interno y sin prescaler
+T1CON = 0b0000_0101
+; Y habilitar TIMER1
+TMR1IE = on
+; valores de inicialización necesarios para cronizar 10 ms
+const byte InitTMR1H = 60
+const byte InitTMR1L = 170
+
+var bit Flag_tmr1 = false
+; rutina interrupción TMR1 propiamente dicha, que se ejecuta cada 10 msegs.
+procedure TMR1_ISR is
+  pragma interrupt
+  if TMR1if then
+     ; Resetear bandera
+     TMR1if = low
+     ; Reinicializar TMR1
+     asm clrf TMR1L
+     TMR1H = InitTMR1H
+     TMR1L = InitTMR1L
+     Flag_tmr1 = true
+  end if
+end procedure
+
+
+
+
+;================================ PROCEDIMIENTOS ======================================
+
+; Para convertir un byte en 3 dígitos separados.
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+; Para convertir un word en 4 dígitos separados.
+procedure word2digits( byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var word miles = 0
+   var byte centena = 0
+   var byte decena = 0
+
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = byte(numero / 100)
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+
+function dig2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte datortc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   _I2C_HW_startbit
+   ; se envía la ID del RTC con LSB en 0...
+   _I2C_HW_put_byte (0b1101_0000)
+   ; y luego el número de registro deseado...
+   _I2C_HW_put_byte (ad)
+   _I2C_HW_stopbit
+   ;------------
+   _I2C_HW_startbit
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   _I2C_HW_put_byte (0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   _I2C_HW_receive_byte ( datortc )
+   _I2C_HW_stopbit
+   ;------------
+   loc = datortc
+   loc2 = datortc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+; Rutina que escribe un byte al RTC, sin convertirlo a BCD, sino puro.
+procedure writertc ( byte in ad , byte in d ) is
+   _I2C_HW_startbit
+   _I2C_HW_put_byte (0b11010000)
+   _I2C_HW_put_byte (ad)		; dirección registro a escribir
+   _I2C_HW_put_byte (d) 		; poner dato en registro
+   _I2C_HW_stopbit
+end procedure
+procedure escribir_rtc ( byte in ad , byte in d ) is
+   ; Codificar el dato binario a formato BCD, en que
+   ; almacena los datos el RTC.
+   var byte loc
+   loc = d
+   loc = loc / 10
+   loc = loc * 16
+   d = d % 10
+   loc = loc + d
+   d = loc
+   writertc ( ad , d )
+end procedure
+
+procedure chequeo_pila is
+; Activar relé que conecta con la pila
+rele_pila_rtc = on
+delay_1ms( 30 )   ; retardo por rebote contactos relé
+; Asumimos que la pila esta conectada al canal #5, pin 8, E.0
+; y se hace la medición...
+tension_pila = ADC_read_low_res( 5 )
+; Desactivar relé
+rele_pila_rtc = off
+; Según hoja de datos, si cae a 2,5 vdc, ya está cerca del agotamiento
+; si 5 Vdc = 255, entonces 2,5 Vdc = 128
+if tension_pila <= 128 then
+   ; La pila está muriendo, poner alguna alarma, y reemplazar!
+end if
+end procedure
+
+
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+end procedure
+
+function leer_eeprom( byte in eepr_pos, word in address ) return byte is
+   var byte dato
+   var byte AX[2] at address
+   var bit resul = false
+   ; primero, enviar el id de la EEPROM
+   _I2C_HW_startbit
+   resul = _I2C_HW_transmit_byte(eepr_pos)
+   ; byte alto dirección
+   resul = _I2C_HW_transmit_byte(AX[1])
+   ; byte bajo dirección
+   resul = _I2C_HW_transmit_byte(AX[0])
+   _I2C_HW_restartbit
+   ; bit de R/W a 1 y enviar
+   resul = _I2C_HW_transmit_byte( eepr_pos | 0b0000_0001)
+   ; leer byte devuelto por la EEPROM...
+   _I2C_HW_receive_byte(dato)
+   _I2C_HW_stopbit
+   return dato
+end function
+
+procedure escribir_eeprom ( byte in eepr_pos, word in address, byte in dato ) is
+   var byte AX[2] at address
+   _I2C_HW_startbit
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   _I2C_HW_put_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   _I2C_HW_put_byte(AX[1])
+   _I2C_HW_put_byte (AX[0])
+   ; grabar datos en eeprom
+   _I2C_HW_put_byte(dato)
+   _I2C_HW_stopbit
+   delay_1ms(4)
+end procedure
+
+; Rutina para escribir N bytes en determinada EEPROM.
+procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+   var byte indice = 0
+   var byte AX[2] at address
+   _I2C_HW_startbit
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   _I2C_HW_put_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   _I2C_HW_put_byte(AX[1])
+   _I2C_HW_put_byte (AX[0])
+   ; Enviar "página" de bytes (datos) a grabar en eeprom
+   _I2C_HW_put_byte(num_orden_alto)
+   _I2C_HW_put_byte(num_orden_bajo)
+   _I2C_HW_put_byte(anio)
+   _I2C_HW_put_byte(mes)
+   _I2C_HW_put_byte(dia)
+   _I2C_HW_put_byte(hora)
+   _I2C_HW_put_byte(minuto)
+   _I2C_HW_put_byte(segundo)
+   _I2C_HW_put_byte(num_esclavo)
+   _I2C_HW_put_byte(num_linea)
+   ; si es una línea digital 255 es ON, 0 es OFF, todos los otros 253 valores
+   ; indican un valor analógico, y 0 se asimila a 001 y 255 a 254
+   _I2C_HW_put_byte(estado_valor)
+   _I2C_HW_stopbit
+end procedure
+
+; Detección de presencia de eeproms en el banco
+function existe_eeprom( byte in pos ) return bit is
+   var byte dato_nuevo = 0
+   var byte dato_orig
+   var bit existe
+   ; Guardar byte original contenido en dirección 0
+   dato_orig = leer_eeprom ( pos , 0 )
+   ; escribir 170 en dicha dirección
+   escribir_eeprom ( pos , 0 , 170 )
+   ; leer de nuevo dirección 0
+   dato_nuevo = leer_eeprom ( pos , 0 )
+   if dato_nuevo == 170 then
+      existe = true
+      ; restaurar dato original dirección 0
+      escribir_eeprom ( pos , 0 , dato_orig )
+   else
+      existe = false
+   end if
+   return existe
+end function
+
+;Rutina para verificar el tamaño de la eeprom indicada (en parámetro "pos")
+function es_tamanio( byte in pos, word in taman ) return bit is
+   var byte temp = 0
+   var byte dato_final = 0
+   ; Leer la dirección 0 de la eeprom indicada
+   temp = leer_eeprom ( pos , 0 )
+   ; Leer la supuesta última + 1 dirección
+   dato_final = leer_eeprom ( pos , taman )
+   ; Si es igual al valor de la posición 0...
+   if dato_final == temp then
+      ; escribir valor original más 1 en la posición 0
+      escribir_eeprom ( pos , 0 , temp + 1 )
+      ; Leer la supuesta última + 1 posición
+      dato_final = leer_eeprom( pos, taman )
+      ; Si son iguales, se leyó la 1ra dirección (comportamiento fall-back)
+      if dato_final == ( temp + 1 ) then
+         ; Reescribir valor original
+         escribir_eeprom ( pos , 0 , temp )
+         return true
+      else
+         ; Reescribir valor original
+         escribir_eeprom ( pos , 0 , temp )
+      end if
+   else
+      return false
+   end if
+end function
+
+; Rutina que barre las 8 posiciones del banco y descubre la presencia y el
+; tamaño de las eeproms presentes.
+procedure detectar_eeproms is
+   var bit exist = false
+   var bit resulta = false
+   var byte posic = 0
+   for count(eeproms) using posic loop
+       exist = existe_eeprom( eeproms[posic] )
+       if exist then
+          resulta = es_tamanio( eeproms[posic], tamanio0 )
+          if resulta then
+             size[posic] = 4
+          else
+             resulta = es_tamanio( eeproms[posic], tamanio1 )
+             if resulta then
+                size[posic] = 8
+             else
+                resulta = es_tamanio( eeproms[posic], tamanio2 )
+                if resulta then
+                   size[posic] = 16
+                else
+                   resulta = es_tamanio( eeproms[posic], tamanio3 )
+                   if resulta then
+                      size[posic] = 32
+                   else
+                      size[posic] = 64
+                   end if
+                end if
+             end if
+          end if
+       end if
+    end loop
+end procedure
+
+; Rutina usada por el siguiente procedure, parte del proceso de detección de
+; presencias, tamaños y orden de escritura.
+procedure asignar_tamanio ( byte in val ) is
+   posicion = eeproms[val]
+   if size[val] == 4 then
+      tope = 4_095
+   elsif size[val] == 8 then
+      tope = 8_191
+   elsif size[val] == 16 then
+      tope = 16_383
+   elsif size[val] == 32 then
+      tope = 32_767
+   elsif size[val] == 64 then
+      tope = 65_535
+   end if
+   size[val] = 0
+end procedure
+
+; Rutina para determinar cual es la primera EEPROM disponible
+; y cuál es la que sigue en orden. Invocarlo cada vez que se llega al final
+; de cada eeprom, para apuntar a la siguiente
+procedure cual_eeprom_escribir is
+   if (size[0] != 0) then
+      asignar_tamanio(0)
+   elsif (size[1] != 0) then
+      asignar_tamanio(1)
+   elsif (size[2] != 0) then
+      asignar_tamanio(2)
+   elsif (size[3] != 0) then
+      asignar_tamanio(3)
+   elsif (size[4] != 0) then
+      asignar_tamanio(4)
+   elsif (size[5] != 0) then
+      asignar_tamanio(5)
+   elsif (size[6] != 0) then
+      asignar_tamanio(6)
+   elsif (size[7] != 0) then
+      asignar_tamanio(7)
+   end if
+end procedure
+
+procedure lector_conectado is
+  if pin_lector_conectado then
+     ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+     ; de interrupciones y otros efectos extraños.
+     ADC_off
+     ; Y también asegurarse que los pines del bus I2C estén "desconectados"
+     pin_c3_direction = input
+     pin_c4_direction = input
+     ; un pitido cortito como señal de que se va a apagar el PIC
+     testigo = on
+     delay_100ms( 2 )              ; 0,2 segs de pitido
+     testigo = off
+     delay_100ms( 2 )
+     ; Apagar los pines que controlan el display, para evitar cosas espúreas
+     portb = off
+     ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+     asm clrwdt
+     ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+     asm sleep
+  end if
+end procedure
+
+
+procedure imprimir_lcd(byte in pos,byte in strg[]) is
+   var word len = count(strg)
+   var byte i = 0
+
+   lcd_cursor_pos = pos
+
+   for len using i loop
+      lcd_char = strg[i]
+   end loop
+end procedure
+
+; ===================================== PRINCIPAL =======================================
+var byte desde_maestro
+var byte y = 0
+var byte arreglo_rtc[] = {0,0,0,0,0,0,0,0,0,0,0,0}
+var byte cuenta = 0
+var byte cuenta2 = 0
+var byte cant_eeproms = 0
+const byte msg_rtc[] = "RTC Esc#"
+; NOTA IMPORTANTE: para impedir scrollings y sobreescrituras indeseadas
+; tratar en lo posible de limitar los strings del LCD a 16 caracteres, en total.
+const byte mensaje_lcd0[] = "Yo soy una AME2"
+const byte mensaje_lcd1[] = " - 1ra linea - "
+const byte mensaje_lcd2[] = " - 2da linea - "
+const byte mensaje_lcd3[] = "Usando PRINT..."
+const byte mensaje_lcd4[] = "Valor:"
+const byte str_borrado[] = "   "
+const byte mensaje_eeproms[] = "EEPROMS:"
+
+
+; Si está conectado el lector de eeprom, apagar el micro. ¡Esta rutina DEBE SER
+; la primera en ejecutarse!
+lector_conectado
+; -------------------------------------------------------------------------------
+; Si el lector de eeprom NO está conectado, a partir de este punto comienzan
+; las inicializaciones y chequeos de un funcionamiento normal.
+; -------------------------------------------------------------------------------
+; Deshabilitar hacer ADC
+ADC_off
+;---------
+; inicialización del bus I2C
+_I2C_HW_initialize
+;---------
+; inicialización del LCD
+lcd_init
+;---------
+; Asegurarse que el pin que controla el relé de la pila del RTC esté desactivado.
+pin_d0 = off
+;---------
+; Encendido y apagado del led/zumbador testigo de arranque.
+testigo = on
+delay_100ms( 5 )
+testigo = off
+delay_100ms( 5 )
+testigo = on
+delay_100ms( 5 )
+testigo = off
+;---------
+
+
+detectar_eeproms
+
+
+; no mostrar cursor
+lcd_cursor = off
+
+
+; Ejemplos de mostrado de mensajes en LCD usando función definida en ESTE MISMO
+; ARCHIVO, sin usar la librería "print". Se la deja por si es de utilidad.
+; -----------------------------------------------------------------------------
+; imprimir en principio primera línea, posición número 0
+imprimir_lcd(0,mensaje_lcd0)
+; retardo solamente para tener tiempo de leer el mensaje, antes
+; de que el siguiente lo borre.
+delay_100ms(30)
+; imprimir en principio primera línea, posición número 0
+imprimir_lcd(0,mensaje_lcd1)
+; imprimir en principio de la 2da línea, posición número 40
+imprimir_lcd(40,mensaje_lcd2)
+; retardo para poder ver los 2 mensajes anteriores
+delay_100ms(30)
+; -----------------------------------------------------------------------------
+
+
+; limpiar LCD
+lcd_clearscreen
+; ejemplo imprimir mensaje en lcd usando una función de la librería print
+; la función clearscreen deja el cursor al principio de la 2da fila.
+print_string(lcd,mensaje_lcd3)
+; retardo para poder verlo
+delay_100ms(30)
+; limpiar
+lcd_clearscreen
+; reposicionar...
+lcd_cursor_pos = 0
+; y mostrar el string "Valor:" en dicha posición (0,0).
+print_string(lcd,mensaje_lcd4)
+
+; reposicionar cursor a 2da fila, primera posición...
+lcd_cursor_pos = 40
+; y mostrar mensaje (no el número) de cantidad de eeproms detectadas
+print_string(lcd,mensaje_eeproms)
+; este lazo obtiene la cantidad de eeproms detectadas
+y = 0
+for count(size) using y loop
+    if size[y] != 0 then
+       cant_eeproms = cant_eeproms + 1
+    end if
+end loop
+; Y mostrar el byte con la cantidad de eeproms detectadas, la función
+; print_byte_dec sirve para mostrar como caracteres el byte que se le pasa
+; como 2do parámetro, tornando innecesaria a la bin2digits, por ej.
+print_byte_dec(lcd, cant_eeproms)
+
+forever loop
+
+   ; Mostrar contador en display LCD aprovechando la interrupción de Timer1
+   ; para actualizar el contador 1 vez por segundo (aprox.).
+   ; Si la bandera de interrupción está puesta...
+   if Flag_tmr1 then
+      ; preguntar por 100 ya que la interrupción se dispara cada 10 msegs
+      ; (10 ms . 100 = 1 s)
+      if cuenta == 100 then
+         ; Definir en qué posición va a escribir (7mo caracter 1ra línea).
+         lcd_cursor_pos = 6
+         ; escribir "cuenta" (valor tipo byte) en formato caracteres
+         ; en la posición 6 (1ra fila, séptimo caracter).
+         ; Esta función ahorra el uso de la ya conocida "bin2digits".
+    	   print_byte_dec(lcd, cuenta2)
+    	   if cuenta2 == 255 then
+    	      cuenta2 = 0
+            ; definir en qué posición va a escribir (1ra fila, séptimo caracter).
+            lcd_cursor_pos = 6
+            ; y limpiar el área de escritura usando string con 3 espacios.
+            print_string(lcd,str_borrado)             	
+    	   else
+    	      ; resetear cuenta mostrada
+            cuenta2 = cuenta2 + 1    	
+         end if
+         ; resetear contador de tiempo
+         cuenta = 0
+      else
+         cuenta = cuenta + 1
+      end if
+      ; limpiar bandera de interrupción antes de salir.
+      Flag_tmr1 = false
+   end if
+
+end loop
+
+

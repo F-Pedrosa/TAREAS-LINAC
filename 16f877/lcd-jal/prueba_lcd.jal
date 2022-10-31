@@ -1,0 +1,74 @@
+include 16f877a                    -- target PICmicro
+
+-- This program assumes a 20 MHz resonator or crystal
+-- is connected to pins OSC1 and OSC2.
+pragma target OSC HS               -- HS crystal or resonator
+pragma target clock 20_000_000     -- oscillator frequency
+pragma target WDT  disabled
+pragma target LVP  disabled
+--
+enable_digital_io()                -- disable analog I/O (if any)
+--
+
+const LCD_ROWS = 2 ; 2x16 LCD
+const LCD_CHARS = 16
+var bit LCD_RS is pin_b4 -- LCD command/data select.
+var bit LCD_EN is pin_b5 -- LCD data trigger
+var byte lcd_dataport is portb_low -- LCD data
+
+portb_direction = all_output -- all LCD on portB
+
+var bit LED is pin_b7
+
+include lcd_hd44780_4 -- LCD library with 4 data lines
+include print -- formatted output library
+include delay -- delay library
+
+for 4 loop
+	LED = on
+	delay_100ms(5)
+	LED = off
+	delay_100ms(5)
+end loop
+
+const byte str1[] = "¡Hola Mundo!"
+
+lcd_init()
+
+delay_100ms(5)
+
+print_string(lcd, str1)
+
+var byte counter = 0
+
+forever loop -- loop forever
+
+	counter = counter + 1
+	lcd_setcursor(1,0)
+	print_byte_dec(lcd, counter)
+	
+  lcd_writechar(" ")
+
+  print_byte_dec(lcd, counter + 1)	
+	delay_100ms(3)
+
+	if counter == 255 then
+		lcd_setcursor(1,1)        ;2nd line, 2nd char
+		lcd = " "                 ;clear 2nd char
+		lcd = " "                 ;clear 3rd char
+	end if
+
+
+
+;  lcd_writechar(counter)
+;  delay_100ms(5)
+;  if counter == 122 then
+;     counter = 97
+;  else
+;     counter = counter + 1
+;  end if
+
+  
+  
+  
+end loop
