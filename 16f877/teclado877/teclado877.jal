@@ -1,0 +1,319 @@
+; ---------------------------------------------------------------
+; Controlar un teclado de matriz con un PIC16f877, y comunicarse
+; con el 16F877 de la AME2 por I2C. Se incluirá en este módulo
+; la parte de display LCD, para descargar al "maestro".
+; ---------------------------------------------------------------
+include 16f877a
+; ---------------------------------------------------------------
+; Se asume un oscilador externo de 20 MHz
+pragma target OSC HS
+pragma target clock 20_000_000
+pragma target WDT  disabled
+pragma target LVP  disabled
+; -----------------------------------------------------------------
+include delay
+; -----------------------------------------------------------------
+;;Predefinición de constantes y variables necesarias, y del hardware, para
+;; el uso de la librería del LCD
+;const LCD_number_of_display_lines      = 2
+;const LCD_number_of_display_characters = 16
+;var volatile bit HD44780_Enable_pin is pin_b5
+;var volatile bit HD44780_Enable_direction is pin_b5_direction
+;var volatile bit HD44780_DataCmd_pin is pin_b4
+;var volatile bit HD44780_DataCmd_direction is pin_b4_direction
+;var volatile bit HD44780_b4_pin is pin_b0
+;var volatile bit HD44780_b4_direction is pin_b0_direction
+;var volatile bit HD44780_b5_pin is pin_b1
+;var volatile bit HD44780_b5_direction is pin_b1_direction
+;var volatile bit HD44780_b6_pin is pin_b2
+;var volatile bit HD44780_b6_direction is pin_b2_direction
+;var volatile bit HD44780_b7_pin is pin_b3
+;var volatile bit HD44780_b7_direction is pin_b3_direction
+;; Ahora incluir la biblioteca de uso del LCD.
+;include hd44780_4
+;; Posdefinición de variable
+;var volatile byte lcd is _lcd
+
+; -----------------------------------------------------------------
+; Incluir biblioteca de formateado e impresión de cadenas de texto.
+include print
+; -----------------------------------------------------------------
+; I2C setup
+const byte _i2c_bus_speed = 1 ; * 100kHz
+const bit _i2c_level = true   ; I2C
+var volatile bit i2c_scl            is pin_c3
+var volatile bit i2c_scl_direction  is pin_c3_direction
+var volatile bit i2c_sda            is pin_c4
+var volatile bit i2c_sda_direction  is pin_c4_direction
+; inclusión librería
+include i2c_hw_slave
+
+const byte SLAVE_ADDRESS = 0x5C
+
+; -----------------------------------------------------------------
+; Definir pines de filas y columnas de la matriz, y su dirección
+; Filas
+var bit fila1 is pin_b6
+var bit fila2 is pin_b5
+var bit fila3 is pin_b4
+var bit fila4 is pin_b3
+; direcciones
+pin_b6_direction = output
+pin_b5_direction = output
+pin_b4_direction = output
+pin_b3_direction = output
+; Columnas
+var bit colu1 is pin_b0
+var bit colu2 is pin_b1
+var bit colu3 is pin_b2
+; direcciones
+pin_b0_direction = input
+pin_b1_direction = input
+pin_b2_direction = input
+; -----------------------------------------------------------------
+; otros pines
+var bit testigo is pin_b7
+pin_b7_direction = output
+var bit testigo_i2c is pin_d0
+pin_d0_direction = output
+; -----------------------------------------------------------------
+; NOTA: los pines C.6 (TX) y C.7 (RX) están asignados por hardware
+; a la comunicación serie.
+; Los pines C.4 (SDA) y C.3 (SCL) son usados por el bus I2C.
+; -----------------------------------------------------------------
+; variables globales
+var byte ascii = 0
+var byte dato = 0
+var byte y = 0
+
+
+var byte i2c_buffer[40]
+
+
+; =========================================================================================
+
+function detecta_tecla return byte is
+   ; poner la fila en 0
+   fila1 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila1 = on
+      delay_1ms(30)
+      ; devolver código
+      return 1
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila1 = on
+      delay_1ms(30)
+      ; devolver código
+      return 2
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila1 = on
+      delay_1ms(30)
+      ; devolver código
+      return 3
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+; ---------------------------
+   ; poner la fila en 0
+   fila2 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila2 = on
+      delay_1ms(30)
+      ; devolver código
+      return 4
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila2 = on
+      delay_1ms(30)
+      ; devolver código
+      return 5
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila2 = on
+      delay_1ms(30)
+      ; devolver código
+      return 6
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+; ---------------------------
+   ; poner la fila en 0
+   fila3 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila3 = on
+      delay_1ms(30)
+      ; devolver código
+      return 7
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila3 = on
+      delay_1ms(30)
+      ; devolver código
+      return 8
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila3 = on
+      delay_1ms(30)
+      ; devolver código
+      return 9
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+; ---------------------------
+   ; poner la fila en 0
+   fila4 = off
+   ; detectar tecla pulsada
+   if !colu1 then
+      while !colu1 loop
+      end loop
+      ; poner la fila en 1
+      fila4 = on
+      delay_1ms(30)
+      ; devolver código
+      return 10
+   elsif !colu2 then
+      while !colu2 loop
+      end loop
+      ; poner la fila en 1
+      fila4 = on
+      delay_1ms(30)
+      ; devolver código
+      return 0
+   elsif !colu3 then
+      while !colu3 loop
+      end loop
+      ; poner la fila en 1
+      fila4 = on
+      delay_1ms(30)
+      ; devolver código
+      return 12
+   end if
+
+   fila1 = on
+   fila2 = on
+   fila3 = on
+   fila4 = on
+
+   return 17
+
+end function
+
+
+; este procedimiento procesa los datos llegados desde el "maestro"
+; vía I2C.
+procedure i2c_process_message(byte in byte_count) is
+   if (i2c_buffer[0] == 0x80) then
+
+      if (byte_count == 1) then
+         -- cmd 0x80 - request version
+         i2c_buffer[0]   = 0x3C         -- application code
+         i2c_buffer[1]   = 0x01         -- version
+      end if
+
+   elsif (i2c_buffer[0] == 0x90) then
+
+      if (byte_count == 2) then
+         -- cmd 0x90 - turn LED off or on
+         if (i2c_buffer[1] == 0) then
+            testigo_i2c = off
+         else
+            testigo_i2c = on
+         end if
+      elsif (byte_count == 1) then
+         -- cmd 0x90 without params: request for led status
+         if (testigo_i2c) then
+            i2c_buffer[0] = 0xFF
+         else
+            i2c_buffer[0] = 0x00
+         end if
+      end if
+
+   end if
+
+end procedure
+
+
+; ================================== PRINCIPAL ============================================
+
+; Todas las salidas de fila del teclado a estado alto
+fila1 = on
+fila2 = on
+fila3 = on
+fila4 = on
+
+; Inicializar interfaz I2C
+i2c_hw_slave_init(SLAVE_ADDRESS)
+
+; destellar testigo
+testigo = on
+; 1 segundo en total
+delay_100ms(10)
+testigo = off
+; medio segundo
+delay_100ms(5)
+
+forever loop
+
+    ; escanear teclado
+    ascii = detecta_tecla
+
+    delay_1ms(50)
+
+;    ; si hubo actividad de teclado, ascii es distinto de 17 (ver código de la función)...
+;    if ascii != 17 then
+;       if ascii == 10 then
+;          ; la tecla asterisco
+;;          serial_hw_write("*")
+;
+;          testigo = !testigo
+;       elsif ascii == 12 then
+;          ; la tecla numeral
+;;          serial_hw_write("#")
+;          testigo = !testigo
+;       else
+;;          serial_hw_write(ascii + 48)
+;          testigo = !testigo
+;       end if
+;    end if
+
+
+end loop
+

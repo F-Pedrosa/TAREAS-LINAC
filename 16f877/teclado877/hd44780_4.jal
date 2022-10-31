@@ -1,0 +1,336 @@
+-- -----------------------------------------------------------------------------
+-- LCD control (HD44780)
+-- -----------------------------------------------------------------------------
+-- -- Library for the control of an LCD module, controlled by HD44780 or equivalent.
+-- The routines are basically designed for a 2 line display,
+-- but with some slight modifications also usable for 1 and 4 line displays
+--
+-- Hardware settings done before including library
+--
+-- Because in general IO-lines are scarce, only 4 bit control of the LCD is implemented.
+-- Cursor is always incremented (decrementing has no useful meaning in western languages).
+--
+--     procedure LCD_cursor'put ( bit in on_off ) is
+--     procedure LCD_blink'put ( bit in on_off ) is
+--     procedure LCD_display'put ( bit in on_off ) is
+--     procedure LCD_cursor_pos'put ( byte in pos ) is
+--     procedure LCD_shift_left is
+--     procedure LCD_shift_right is
+--     procedure LCD_char'put ( byte in ascii ) is
+--     procedure LCD_char_pos ( byte in ASCII , byte in pos ) is
+--     procedure LCD_char_line_pos ( byte in ASCII , byte in line, byte in pos ) is
+--     procedure LCD_clear_line ( byte in line ) is
+--     procedure LCD_init is
+--
+-- -----------------------------------------------------------------------------
+-- -----------------------------------------------------------------------------
+
+-- -----------------------------------------------------------------------------
+-- these delays are necessary in between certain commands,
+-- I guess they should work in all cases
+const _HD44780_short_delay     = 5   -- fast command delay in 10 usec units
+                                     -- should be 4=40usec for 250kHz cycle frequency
+const _HD44780_long_delay      = 180 -- fast command delay in 10 usec units
+                                     -- should be 165 = 1.65 msec for 250kHz cycle frequency
+-- -----------------------------------------------------------------------------
+
+
+-- -----------------------------------------------------------------------------
+-- some constants to control the LCD
+-- -----------------------------------------------------------------------------
+const _HD44780_clear_display       = 0b_0000_0001
+const _HD44780_return_home         = 0b_0000_0010    -- LONG DELAY !!
+
+const _HD44780_display_onoff       = 0b_0000_1000
+                               
+const _HD44780_cursor_shift_right  = 0b_0001_0100
+const _HD44780_cursor_shift_left   = 0b_0001_0000
+const _HD44780_display_shift_right = 0b_0001_1100
+const _HD44780_display_shift_left  = 0b_0001_1000
+
+const _HD44780_set_CGRAM_address   = 0b_0100_0000  -- + 6 bits address
+const _HD44780_set_DDRAM_address   = 0b_1000_0000  -- + 7bits address
+-- -----------------------------------------------------------------------------
+
+
+-- global on/off shadow bits
+var volatile bit _HD44780_display = true
+var volatile bit _HD44780_cursor  = false
+var volatile bit _HD44780_blink   = false
+
+
+-- other global variables
+var volatile byte LCD_pos = 0
+
+
+-- ----------------------------------------------------------------------------
+-- sends low nibble from value to the LCD
+-- can be used for both commands and data
+-- (requires no wait cycli inbetween upper and lower nibble)
+-- (this routine is only used inside this file)
+-- ----------------------------------------------------------------------------
+procedure _HD44780_write_low_nibble ( byte in value ) is
+var bit bit0 at value : 0
+var bit bit1 at value : 1
+var bit bit2 at value : 2
+var bit bit3 at value : 3
+
+  -- setup databits
+  HD44780_b4_pin = bit0
+  HD44780_b5_pin = bit1
+  HD44780_b6_pin = bit2
+  HD44780_b7_pin = bit3
+  
+  -- generate clockpuls
+  HD44780_Enable_pin  = high   -- enable high
+  HD44780_Enable_pin  = low    -- enable  high --> low = clock data
+end procedure
+-- ----------------------------------------------------------------------------
+
+
+-- ----------------------------------------------------------------------------
+-- sends command byte in value to LCD
+-- for slow commands an extra delay should be added
+-- (this routine is only used inside this file)
+-- ----------------------------------------------------------------------------
+procedure _HD44780_Command( byte in value ) is
+   hd44780_DataCmd_pin = low                   -- select instruction
+   _HD44780_write_low_nibble( value >> 4 ) -- output high nibble
+   _HD44780_write_low_nibble( value )      -- output low nibble
+   delay_10uS( _HD44780_short_delay )      -- required delay
+end procedure
+-- ----------------------------------------------------------------------------
+
+
+-- ----------------------------------------------------------------------------
+-- transports the global settings (display, cursor, blink) to the LCD
+-- ----------------------------------------------------------------------------
+procedure _HD44780_Do_Settings is
+var byte cmd
+  cmd = _HD44780_display_onoff
+  if _HD44780_display then cmd = cmd + 4 end if
+  if _HD44780_cursor  then cmd = cmd + 2 end if
+  if _HD44780_blink   then cmd = cmd + 1 end if
+  _HD44780_Command ( cmd )
+end procedure
+-- ----------------------------------------------------------------------------
+
+
+-- ----------------------------------------------------------------------------
+-- Turn Cursor on / off
+-- ----------------------------------------------------------------------------
+procedure LCD_cursor'put 
+  ( bit in on_off ) is
+  _HD44780_cursor = on_off
+  _HD44780_Do_Settings
+end procedure
+-- ----------------------------------------------------------------------------
+
+
+-- ----------------------------------------------------------------------------
+-- Turn Blink on / off
+-- ----------------------------------------------------------------------------
+procedure LCD_blink'put 
+  ( bit in on_off ) is
+  _HD44780_blink = on_off
+  _HD44780_Do_Settings
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- Turn Display on / off
+-- ----------------------------------------------------------------------------
+procedure LCD_display'put 
+  ( bit in on_off ) is
+  _HD44780_display = on_off
+  _HD44780_Do_Settings
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- sends data byte in value to LCD,
+-- use this routine to send data to the character rom
+-- (requires no extra wait cycli afterwards)
+-- (this routine is only used inside this file)
+-- ----------------------------------------------------------------------------
+procedure _LCD'put ( byte in ascii ) is
+   HD44780_DataCmd_pin = high   -- select data
+   _HD44780_write_low_nibble( ascii >> 4 ) -- output high nibble
+   _HD44780_write_low_nibble( ascii )      -- output low nibble
+   delay_10uS( _HD44780_short_delay )      -- required delay
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- sets the cursor of the LCD to the position in the shadow register
+-- ----------------------------------------------------------------------------
+procedure _LCD_restore_cursor is
+  -- set LCD back to normal operation
+  _HD44780_Command ( _HD44780_set_DDRAM_address | LCD_pos )
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- sets the cursor of the LCD to position POS
+-- ----------------------------------------------------------------------------
+procedure LCD_cursor_pos'put 
+  ( byte in pos ) is
+  LCD_pos = pos
+  _LCD_restore_cursor
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- shifts display (that is all lines) one position to the left
+-- ----------------------------------------------------------------------------
+procedure LCD_shift_left is
+  -- set LCD back to normal operation
+  _HD44780_Command ( _HD44780_display_shift_left )
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- shifts display (that is all lines) one position to the right
+-- ----------------------------------------------------------------------------
+procedure LCD_shift_right is
+  -- set LCD back to normal operation
+  _HD44780_Command ( _HD44780_display_shift_right )
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- Send character ASCII to LCD,
+-- cursor position is held in a shadow register,
+-- (necessary if animations are running
+-- or useful if the display must be full rotating)
+-- ----------------------------------------------------------------------------
+procedure LCD_char'put 
+  ( byte in ascii ) is
+  -- send ASCII character to current position of display
+  _LCD = ascii
+  
+  -- now increment shadow counter,
+  -- incrementing is done in such a way that the whole display area is used
+  LCD_POS = LCD_POS + 1
+  if LCD_number_of_display_lines == 1 then
+    if LCD_POS == LCD_number_of_display_characters then LCD_POS = 0
+    end if
+
+  elsif LCD_number_of_display_lines == 2 then
+    if    LCD_POS ==        LCD_number_of_display_characters then LCD_POS = 0x40
+    elsif LCD_POS == 0x40 + LCD_number_of_display_characters then LCD_POS = 0
+    end if
+
+  else -- 4 lines
+    if    LCD_POS ==        LCD_number_of_display_characters then LCD_POS = 0x40
+    elsif LCD_POS == 0x40 + LCD_number_of_display_characters then LCD_POS = 0x10
+    elsif LCD_POS == 0x10 + LCD_number_of_display_characters then LCD_POS = 0x50
+    elsif LCD_POS == 0x50 + LCD_number_of_display_characters then LCD_POS = 0
+    end if
+
+  end if
+
+  -- set LCD back to normal operation
+  _LCD_restore_cursor
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- writes charactes ASCII to the LCD at postion POS
+-- positions refers to the oficial LCD position [ 0 .. 79 ],
+--   so writing to 0x42 in a 2*16 display, will write at the third position
+--   of the second line
+-- therefore it's also possible to write outside the physical display
+-- ----------------------------------------------------------------------------
+procedure LCD_char_pos 
+  ( byte in ASCII , byte in pos ) is
+  LCD_cursor_pos = pos
+  LCD_char = ASCII
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- writes charactes ASCII to the LCD at postion POS on line LINE [0..1]
+-- see also remarks for routine LCD_CHAR_POS
+-- ----------------------------------------------------------------------------
+procedure LCD_char_line_pos 
+  ( byte in ASCII , byte in line, byte in pos ) is
+  if LCD_number_of_display_lines == 1 then
+    LCD_pos = pos
+
+  elsif LCD_number_of_display_lines == 2 then
+    if line == 0 then LCD_pos = pos
+    else              LCD_pos = pos + 0x40
+    end if
+
+  else -- 4 lines
+    if    line == 0 then LCD_pos = pos
+    elsif line == 1 then LCD_pos = pos + 0x40
+    elsif line == 2 then LCD_pos = pos + 0x10
+    else                 LCD_pos = pos + 0x50
+    end if
+
+  end if
+
+  _LCD_restore_cursor
+  LCD_char = ASCII
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- clears the selected line [0..1] and
+-- sets the cursor at the start of that line
+-- ----------------------------------------------------------------------------
+procedure LCD_clear_line 
+  ( byte in line) is
+  -- set LCD-cursor at start of line
+  if line == 0 then LCD_pos = 0 else LCD_pos = 0x40 end if
+  _LCD_restore_cursor
+
+  -- now fill line with spaces
+  for LCD_number_of_display_characters loop
+    _LCD = " "
+  end loop
+
+  -- set LCD back to normal operation
+  _LCD_restore_cursor
+end procedure
+-- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+procedure  lcd_clearscreen() is
+   ; SOLUCIÓN REBERRETA, MEJORAR CUANDO SE PUEDA!!!!!!!!!!
+   LCD_clear_line(0)
+   LCD_clear_line(1)
+   if LCD_number_of_display_lines == 3 then
+      LCD_clear_line(2)
+   elsif LCD_number_of_display_lines == 4 then
+      LCD_clear_line(2)
+      LCD_clear_line(3)
+   end if
+end procedure
+-- ----------------------------------------------------------------------------
+-- Software reset / initialisation
+-- ----------------------------------------------------------------------------
+procedure LCD_init is
+
+  HD44780_Enable_pin       = low
+  HD44780_Enable_direction = output
+
+  delay_1mS ( 40 )                      -- even long enough for Vcc as low as 2.7V
+  HD44780_DataCmd_pin = low             -- select command
+  _HD44780_write_low_nibble ( 0b_0011 ) -- first init
+  delay_1mS ( 5 )                       -- extra delay
+  _HD44780_write_low_nibble ( 0b_0011 ) -- second init
+  delay_10uS( 10 )                      -- extra delay
+  _HD44780_write_low_nibble ( 0b_0011 ) -- third init
+
+  _HD44780_write_low_nibble ( 0b_0010 ) -- set 4-bit interface
+  delay_10uS( _HD44780_short_delay )    -- FOR SOME DISPLAYS (VARITRONIX) required delay
+  _HD44780_Command( 0b_0010_1000 )      -- two lines, 5x7 (high nibble)
+  _HD44780_Command( 0b_0000_1111 )      -- display on, cursor on, blink on
+  _HD44780_Command( 0b_0000_0001 )      -- clear display
+  _HD44780_Command( 0b_0000_0110 )      -- increment and no shift
+
+  delay_1ms(300)
+
+  LCD_char_pos ( "L", 1)
+  LCD_char_pos ( "C", 2)
+  LCD_char_pos ( "D", 3)
+  LCD_char_pos ( " ", 4)
+  LCD_char_pos ( "O", 5)
+  LCD_char_pos ( "K", 6)
+
+  delay_1ms(300)
+
+end procedure
+
