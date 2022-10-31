@@ -1,0 +1,278 @@
+; Firmware para la prueba del hardware de la AM215mt-mc
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+include delay
+include print
+
+
+alias zumbador is pin_e2
+pin_e2_direction = output
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+; -----------------------------------------------------------
+; para mandar info a la PC serialmente durante fase de debugging
+alias serial_sw_tx_pin     is  pin_d1
+alias serial_sw_rx_pin     is  pin_d0
+pin_d1_direction = output
+pin_d0_direction = input
+const serial_sw_baudrate = 57_600
+include serial_software
+serial_sw_init()
+
+; -----------------------------------------------------------
+; Protocolo I2C implementado por software, EEPROMs y RTC, en ESTA plaqueta
+alias i2c_scl            is pin_d2
+alias i2c_scl_direction  is pin_d2_direction
+alias i2c_sda            is pin_d3
+alias i2c_sda_direction  is pin_d3_direction
+const word _i2c_bus_speed = 1 ; * 100kHz
+include i2c_software
+i2c_initialize()
+; -----------------------------------------------------------
+; Seteos de pines para el LCD, en ESTA plaqueta
+const byte LCD_ROWS   = 2     ; 2 líneas
+const byte LCD_CHARS  = 16    ; 16 chars por línea
+alias  lcd_rs  is  pin_b4     ; cmd/data select
+alias  lcd_en  is  pin_b5     ; enable
+
+alias  lcd_d4       is  pin_a2  ; lcd databit d4
+alias  lcd_d5       is  pin_b1  ; lcd databit d5
+alias  lcd_d6       is  pin_b2  ; lcd databit d6
+alias  lcd_d7       is  pin_b3  ; lcd databit d7
+
+pin_b5_direction = output
+pin_b4_direction = output
+pin_b3_direction = output
+pin_b2_direction = output
+pin_b1_direction = output
+pin_a2_direction = output
+
+include lcd_hd44780_4
+lcd_init()
+; -----------------------------------------------------------
+; setup spi e inclusión librería spi (el hardware para comunicarse con la SD y el transceptor)
+include spi_master_hw_fep
+; definir entradas/salidas spi (no hay mucha alternativa, las fija el hard, excepto a ChipSelect)
+pin_sdi_direction = input    ; entrada datos spi
+pin_sdo_direction = output   ; salida datos spi
+pin_sck_direction = output   ; clock spi (salida)
+; -----------------------------------------------------------
+spi_init(SPI_MODE_00,SPI_RATE_FOSC_4) ; <----- SETEOS PARA EL nRF24L01, ATENCIÓN!!!!!!!!!!!!!!
+alias nrf24_ce_pin is pin_c2                        ; C.2 maneja al pin CE del módulo
+alias nrf24_ce_pin_direction is pin_c2_direction
+nrf24_ce_pin_direction = output
+alias nrf24_csn_pin is pin_c1                        ; C.1 maneja al pin CSN del módulo
+alias nrf24_csn_pin_direction is pin_c1_direction
+nrf24_csn_pin_direction = output
+alias spi_master_exchange is spi_master_hw_exchange
+nrf24_ce_pin = low
+nrf24_csn_pin = high
+delay_1ms(10)
+alias nrf24_irq_pin is pin_b0                        ; B.0 recibe la salida IRQ del módulo
+alias nrf24_irq_pin_direction is pin_b0_direction
+nrf24_irq_pin_direction = input
+const byte tamanio_rf_data = 8      ; definir el tamaño del arreglo, debe ser IGUAL en el otro firmware (Tx y/o Rx)
+include nrf24l01_traducido_desde_C_v3
+; -----------------------------------------------------------
+var byte anio
+var byte mes
+var byte dia
+var byte hora
+var byte minuto
+var byte segundo
+
+var byte digi0
+var byte digi1
+var byte digi2
+var byte tecla
+
+var dword sector = 2                        ; para la verificación de funcionamiento, escribir algo acá y lueo borrarlo
+
+const byte mensaje_listo[] = "Listo!"
+; -----------------------------------------------------------
+; byte a 3 caracteres
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+   ;------------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+   delay_1ms(5)
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+end procedure
+procedure writertc ( byte in ad , byte in d ) is
+   var bit res
+
+   i2c_start
+   res = i2c_transmit_byte ( 0b11010000 ) ; ID modo escritura
+   res = i2c_transmit_byte ( ad )		; dirección registro a escribir
+   res = i2c_transmit_byte ( d ) 		; poner dato en registro
+   i2c_stop
+end procedure
+procedure escribir_rtc ( byte in ad , byte in d ) is
+   ; Codificar el dato binario a formato BCD, en que
+   ; almacena los datos el RTC.
+   var byte loc
+   loc = d
+   loc = loc / 10
+   loc = loc * 16
+   d = d % 10
+   loc = loc + d
+   d = loc
+   writertc ( ad , d )
+end procedure
+
+;procedure grabar_trama_test is
+;      sd_start_write(sector)
+;      ; grabar datos dummy (16 para que sea como una trama genérica)
+;      sd_write_data("1","2")
+;      sd_write_data("3","4")
+;      sd_write_data("5","6")
+;      sd_write_data("7","8")
+;      sd_write_data("9","0")
+;      sd_write_data("a","b")
+;      sd_write_data("c","d")
+;      sd_write_data("e","f")
+;      ; ESTA INSTRUCCIÓN ES FUNDAMENTAL, COMPLETA LOS 512 BYTES DEL SECTOR, SIN ELLO NO ANDA!
+;      ; se eligió llenar con @ para tener el sector completo fácil de identificar
+;      sd_write_to_sector_end("@")
+;      sd_stop_write()
+;      sector = sector + 1              ; apuntar al siguiente sector
+;end procedure
+
+
+; =========================================================================================================================
+
+;zumbador = on
+testigo = on
+delay_100ms(5)
+;zumbador = off
+testigo = off
+
+;spi_init(SPI_MODE_00,SPI_RATE_FOSC_4) ; <----- SETEOS PARA EL nRF24L01
+nrf24_csn_pin_direction = output      ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+delay_1ms(5)
+RF_CONFIG(0x40,10)                    ; Configurar módulo RF (canal y dirección).
+RF_ON()                               ; Activar el módulo RF.
+delay_1ms(5)
+nrf24_csn_pin_direction = output     ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+delay_100ms(10)
+
+; lo siguiente funciona, fue comentado para las pruebas del transceptor en esta plaqueta
+;lcd_clear_screen
+;print_string(lcd,mensaje_listo)
+;serial_sw_data = "O"
+;serial_sw_data = "K"
+;print_crlf(serial_sw_data)
+
+var word resul_rf
+var byte ind = 0
+
+forever loop
+
+
+   rf_data[0] = ind
+   ind = ind + 1
+
+   RF_DIR = 9
+   resul_rf = RF_SEND()
+   testigo = !testigo
+   delay_100ms(10)     ; cada 1 segs
+
+
+; lo siguiente funciona, fue comentado para las pruebas del transceptor en esta plaqueta
+;  obtener_fecha_hora
+;  print_byte_dec(serial_sw_data,anio)
+;  serial_sw_data = "/"
+;  print_byte_dec(serial_sw_data,mes)
+;  serial_sw_data = "/"
+;  print_byte_dec(serial_sw_data,dia)
+;  serial_sw_data = " "
+;  print_byte_dec(serial_sw_data,hora)
+;  serial_sw_data = ":"
+;  print_byte_dec(serial_sw_data,minuto)
+;  serial_sw_data = ":"
+;  print_byte_dec(serial_sw_data,segundo)
+;  print_crlf(serial_sw_data)
+end loop
+
