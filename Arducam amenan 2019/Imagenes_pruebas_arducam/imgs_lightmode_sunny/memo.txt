@@ -1,0 +1,3 @@
+Imágenes tomadas usando el seteo "Soleado" del Arducam, en 1280x960. Hay varios segundos entre disparo y disparo.
+
+myCAM.OV2640_set_Light_Mode(Sunny);

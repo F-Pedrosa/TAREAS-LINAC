@@ -1,0 +1,3 @@
+resolución 1280x960
+
+arranca con enfocador cerrado y va cambiando 1/2 vuelta hacia afuera entre imágenes. Advertir que el que mejor se ve (el 4.jpg), es también el de mayor tamaño (61 KB).

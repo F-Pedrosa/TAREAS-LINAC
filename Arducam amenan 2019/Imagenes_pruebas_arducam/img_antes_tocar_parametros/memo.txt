@@ -1,0 +1,1 @@
+sacadas martes temprano a la mañana para verificar el correcto funcionamiento, antes de empezar a probar variando el parámetro LightMode.

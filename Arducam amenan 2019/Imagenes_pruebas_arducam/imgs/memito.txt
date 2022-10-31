@@ -1,0 +1,4 @@
+3 fotos por resolución, cada 5 segs.
+Desde 640x480 hasta 1280x960.
+
+Se advierte que el sensor parece usar la 1ra foto para adaptar algo. Y que hay que ajustar el foco para cada caso, pareciera.
