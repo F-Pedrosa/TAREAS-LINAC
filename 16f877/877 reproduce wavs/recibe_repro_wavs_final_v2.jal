@@ -1,0 +1,588 @@
+; Declaraciones de librerías incluídas y sus seteos
+include 16f877
+; -----------------------------------------------------------
+pragma target OSC HS
+pragma target clock 20_000_000
+pragma target WDT  disabled
+pragma target LVP  disabled
+; -----------------------------------------------------------
+include delay
+; -----------------------------------------------------------
+; setup rs-232 x hardware
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+; -----------------------------------------------------------
+; setup spi e inclusión librería spi (el hardware para comunicarse con la SD)
+include spi_master_hw
+spi_init(SPI_MODE_11,SPI_RATE_FOSC_4)
+; definir entradas/salidas spi (no hay mucha alternativa, las fija el hard, excepto a ChipSelect)
+pin_sdi_direction = input    ; entrada datos spi
+pin_sdo_direction = output   ; salida datos spi
+pin_sck_direction = output   ; clock spi (salida)
+; spi chip select pin
+ALIAS chip_select_direction   is pin_c2_direction
+ALIAS chip_select             is pin_c2
+chip_select_direction = output    ; pin chip select como salida
+chip_select = low                 ; arrancar con chip slect en 0
+; incluir librería sd card
+include sd_card
+sd_init()       ; inicializar la tarjeta sd
+; -----------------------------------------------------------
+; Declaración de direcciones de pines, aliases, variables y constantes globales.
+
+; led testigo
+alias  testigo is pin_c0
+pin_c0_direction = output
+; por este puerto (B) salen los datos hacia el DAC
+portb_direction = all_output
+
+; algunas entradas (no son las de la PPA, ojo!)
+alias entrada1 is pin_d7
+alias entrada2 is pin_d6
+alias entrada3 is pin_d5
+pin_d7_direction = input
+pin_d6_direction = input
+pin_d5_direction = input
+
+; varios de estos mensajes no se usan, limpiar en algún momento....
+const byte msg_error[] = "Numero de wav incorrecto!"
+const byte msg_indice[] = "Contenido del Indice:"
+const byte msg_indice_nombre[] = "Nombre:"
+const byte msg_indice_tamanio[] = "Tamaño:"
+const byte msg_indice_sector[] = "Sector inicial:"
+const byte msg_listo[] = "Listo!"
+const byte msg_ok[] = "OK"
+
+; algunas globales
+var byte desde_pc = 0
+var dword tamanio = 0
+var dword contador = 0
+var byte indice = 0
+var byte individual[12]
+var byte indi[4] at tamanio
+var byte low_byte, high_byte
+var bit bandera = 0
+var byte y = 0
+var byte bloque_indice[10]
+
+var byte digi5 = 0
+var byte digi4 = 0
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+var dword sector_inicial = 3
+var byte cuenta_ceros = 0
+
+var byte orden = 1
+
+var byte arreglo_indice[10]
+var word cantidad_wavs = 0
+var byte i = 0
+
+; Alias que se agregan para corregir incompatibilidades de nombres
+; entre diferentes versiones de librarías (JalLib).
+alias TMR1IE is PIE1_TMR1IE
+alias TMR1if is PIR1_TMR1IF
+
+; --------------------------------------- Procedimientos --------------------------------------------
+; Se usa la interrupción de timer para mantener la tasa de muestreo de los wavs de 22050 Hz
+; y que no se produzcan distorsiones.
+; ============================ PROCEDIMIENTO INTERRUPCIÓN TIMER1 =============================
+OPTION_REG = 0
+; Habilitar interrupciones de periféricos (entre ellos TIMER1)
+INTCON = 0b_1100_0000
+; Setear TMR1 en modo free run, con oscilador interno y sin prescaler
+T1CON = 0b0000_0101
+; Y habilitar TIMER1
+TMR1IE = on
+; valores de inicialización correctos para Ttimer1 = 1/22050 Hz, ajustados manualmente con frecuencímetro.
+const byte InitTMR1H = 255
+const byte InitTMR1L = 51
+var bit Flag_tmr1 = false
+; rutina interrupción TMR1 propiamente dicha, que se ejecuta cada aprox. 45 usegs.
+procedure TMR1_ISR is
+  pragma interrupt
+  if TMR1if then
+     ; Resetear bandera
+     TMR1if = low
+     ; Reinicializar TMR1
+     asm clrf TMR1L
+     TMR1H = InitTMR1H
+     TMR1L = InitTMR1L
+     Flag_tmr1 = true
+  end if
+end procedure
+; ============================================================================================
+; enviar CR_LF x rs232
+procedure cr_lf is
+   serial_hw_write (13)
+   serial_hw_write (10)
+end procedure
+; convertir 3 caracteres en byte
+function dig2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+
+   di2 = di2 - 48
+   di1 = di1 - 48
+   di0 = di0 - 48
+
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+; byte a 3 caracteres
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+; word a 4 caracteres/dígitos
+procedure word2digits( byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var word miles = 0
+   var byte centena = 0
+   var byte decena = 0
+
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = byte(numero / 100)
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+; dword a 6 caracteres/dígitos
+procedure dword2digits( byte out dig5, byte out dig4, byte out dig3, byte out dig2, byte out dig1, byte out dig0, dword in numero ) is
+
+   var dword centemil = 0
+   var dword decemil = 0
+   var dword miles = 0
+   var dword centena = 0
+   var dword decena = 0
+
+   centemil = numero / 100_000
+   dig5 = byte( centemil)
+   centemil = centemil * 100_000
+   numero = numero - centemil
+   decemil = numero / 10_000
+   dig4 = byte(decemil)
+   decemil = decemil * 10_000
+   numero = numero - decemil
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   dig2 = byte(centena)
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = byte(decena)
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+; Procedimiento que recibe un string (arreglo de bytes) como parámetro y lo
+; envía por la interfz serial x hardware hacia la PC agregándole un CRLF si así se indica.
+procedure msg_serial(byte in string[], bit in cr) is
+   var word len = count(string)
+   var byte i
+   for len using i loop
+      serial_hw_write(string[i])
+   end loop
+   if cr then
+      cr_lf
+   end if
+end procedure
+; -------------------------------------------------------------------------------------
+; El siguiente procedimiento lee el registro índice ubicado en el sector 1 de la tarjeta
+; SD, y de él obtiene datos de sector de arranque y tamaño de los wavs previamente grabados
+; en la misma, para de esa manera poder leerlo y reproducirlos a través del DAC, los
+; amplificadores y parlante.
+; En el sector 1 hay registros de 10 bytes que contienen un número de orden del wav,
+; el sector donde comienza y su tamaño. NO ESTÁ EL NOMBRE!!!
+
+; Por ejemplo si se hubieran grabado con este orden:
+;             bateria_mono_8.wav
+;             LOGOFF_mono_8.wav
+;             MS_Sound_mono_8.wav
+
+; para reproducirlos sería:
+;             reproducir_wav(1)
+;             reproducir_wav(2)
+;             reproducir_wav(3)
+;
+; Y no es obligatorio reproducirlos en secuencia, puede ser en cualquier orden.
+procedure reproducir_wav( byte in ord) is
+    var dword set_inc
+    var byte sct[4] at set_inc
+    var dword taman
+    var byte tam[4] at taman
+    var byte i = 0
+
+    sd_start_read(1)
+    ; avanzo tantos saltos de 2 * 5 bytes como sea el orden - 1
+    if ord > 1 then
+       ord = (ord -1 ) * 5
+       sd_read_pulse(ord)
+    end if
+    bandera = false
+    i= 0
+    ; leo los sguientes 10 bytes de la SD, donde está el registro que me interesa
+    for 10 using i loop
+       if !bandera then
+          sd_read_data(low_byte, high_byte)
+          arreglo_indice[i] = low_byte
+          bandera = true
+       else
+          arreglo_indice[i] = high_byte
+          bandera = false
+       end if
+    end loop
+    sd_stop_read()
+    testigo = off
+    ; obtener el dword a partir de los bytes
+    sct[3] = arreglo_indice[2]
+    sct[2] = arreglo_indice[3]
+    sct[1] = arreglo_indice[4]
+    sct[0] = arreglo_indice[5]
+    ; obtener el dword a partir de los bytes
+    tam[3] = arreglo_indice[6]
+    tam[2] = arreglo_indice[7]
+    tam[1] = arreglo_indice[8]
+    tam[0] = arreglo_indice[9]
+    ; reproducir el wav pedido
+    testigo = on
+    TMR1IE = on
+    ; leer bytes desde la tarjeta SD y mandarlos al puerto B, donde está conectados
+    ; un DAC0800 y un amplificador de audio
+    sd_start_read(set_inc)  ; alistar sd card para lectura sectores predefinidos (que debe coincidir con los escritos antes)
+    contador = 1
+    while contador <= taman loop
+       if Flag_tmr1 then
+          if !bandera then
+             sd_read_data(low_byte, high_byte)
+             PORTB = low_byte
+             bandera = true
+          else
+             PORTB = high_byte
+             bandera = false
+          end if
+          Flag_tmr1 = false
+          contador = contador + 1
+       end if
+    end loop
+    contador = 1
+    TMR1IE = off
+    sd_stop_read()
+    testigo = off
+end procedure
+; El siguiente procedimiento lee el sector índice y saca la cantidad de wavs que según
+; él hay grabados en la tarjeta SD
+procedure deter_cant_wavs is
+  ; leer indice (sector 1) y determinar cantidad de wavs
+  cantidad_wavs = 0
+  testigo = on
+  sd_start_read(1)
+  low_byte = 0
+  high_byte = 0
+  contador = 0
+  ; determinar cantidad de wavs, viendo 1er byte cada registro, si encuentra ".", termina.
+  while low_byte != "." loop
+     sd_read_data(low_byte, high_byte)
+     ; si el primer byte = ".", quiere decir que no hay ningún wav grabado
+     if (high_byte == "." ) | (low_byte == ".") | (contador > 512) then
+        exit loop
+     end if
+     ; saltar 8 bytes (4 x 2), para pasar al siguiente inicio de registro
+     sd_read_pulse(4)
+     cantidad_wavs = cantidad_wavs + 1
+     contador = contador + 1
+  end loop
+  sd_stop_read()
+  testigo = off
+  contador = 0
+end procedure
+
+; --------------------------------------- PRINCIPAL --------------------------------------------
+; para que el programa arranque con la interrupción de Timer1 apagada.
+TMR1IE = off
+; lazo para evitar el chasquido de encendido, al reproducir un wav desde la SD
+; debido a que el nivel de 0 del wav es un valor de 128.788
+y = 0
+portb = 0
+for 128 using y loop
+    portb = y
+    _usec_delay(25)
+end loop
+; titilar testigo luminoso
+testigo = on
+for 2 loop
+   delay_100ms(10)
+end loop
+testigo = off
+; variables (se podrían definir como globales también)
+var dword set_inc
+var byte sct[4] at set_inc
+var dword taman
+var byte tam[4] at taman
+var bit bandera_indice = true
+var byte canti = 0
+
+; -------------------------------------------  LAZO INFINITO   -------------------------------------
+forever loop
+
+    ; si el pin de entrada1 cae a 0, reproducir 2 wavs
+    if entrada1 == 0 then
+      reproducir_wav(1)
+      delay_100ms(10)
+      reproducir_wav(3)
+    end if
+    ; si el pin de entrada2 cae a 0, reproducir otros 2 wavs
+    if entrada2 == 0 then
+      reproducir_wav(2)
+      delay_100ms(10)
+      reproducir_wav(4)
+    end if
+    ; si el pin de entrada3 cae a 0, reproducir varios wavs en diverso orden
+    if entrada3 == 0 then
+      reproducir_wav(1)
+      delay_100ms(10)
+      reproducir_wav(2)
+      delay_100ms(10)
+      reproducir_wav(3)
+      delay_100ms(10)
+      reproducir_wav(4)
+      delay_100ms(10)
+      reproducir_wav(4)
+      delay_100ms(10)
+      reproducir_wav(3)
+      delay_100ms(10)
+      reproducir_wav(2)
+      delay_100ms(10)
+      reproducir_wav(1)
+    end if
+
+    ; Bloque que opera según el caracter que llegue serialmente desde la PC
+    if Serial_hw_read(desde_pc) then
+      ; si es z, llegan datos para grabr en índice (sector 1)
+      if (desde_pc == "z" & bandera_indice )then          ; llegan datos para el índice
+         testigo = on
+         canti = serial_hw_data
+         cantidad_wavs = canti
+         canti = canti * 10
+         ; grabar en sector 1 de la SD los campos del índice, a saber: nº orden, sector arranque, tamaño
+         sd_start_write(1)
+         for canti loop
+            desde_pc = serial_hw_data
+            if bandera == 0 then
+               low_byte = desde_pc
+               bandera = 1
+            else
+               high_byte = desde_pc
+               bandera = 0
+               sd_write_data(low_byte, high_byte)
+            end if
+         end loop
+         sd_write_to_sector_end(".")
+         sd_stop_write()
+         testigo = off
+         bandera_indice = false
+      ; si llega x hay que leer el sector 1 (índice) y enviarlo a la PC
+      elsif desde_pc == "x" then
+         var dword set_inc
+         var byte sct[4] at set_inc
+         var dword taman
+         var byte tam[4] at taman
+         testigo = on
+         contador = 1
+         sd_start_read(1)
+         for cantidad_wavs loop
+            sd_read_data(low_byte, high_byte)
+            serial_hw_write(low_byte)
+            serial_hw_write(high_byte)
+            serial_hw_write("-")
+            sd_read_data(low_byte, high_byte)
+            sct[3] = low_byte
+            sct[2] = high_byte
+            sd_read_data(low_byte, high_byte)
+            sct[1] = low_byte
+            sct[0] = high_byte
+            ; el arreglo sct[] permite armar el dword set_inc, q se envía como 6 dígitos a la PC
+            dword2digits(digi5,digi4,digi3,digi2,digi1,digi0,set_inc)
+            serial_hw_write(digi5+48)
+            serial_hw_write(digi4+48)
+            serial_hw_write(digi3+48)
+            serial_hw_write(digi2+48)
+            serial_hw_write(digi1+48)
+            serial_hw_write(digi0+48)
+            serial_hw_write("-")
+            sd_read_data(low_byte, high_byte)
+            tam[3] = low_byte
+            tam[2] = high_byte
+            sd_read_data(low_byte, high_byte)
+            tam[1] = low_byte
+            tam[0] = high_byte
+            ; el arreglo tam[] permite armar el dword taman, q se envía como 6 dígitos a la PC
+            dword2digits(digi5,digi4,digi3,digi2,digi1,digi0,taman)
+            serial_hw_write(digi5+48)
+            serial_hw_write(digi4+48)
+            serial_hw_write(digi3+48)
+            serial_hw_write(digi2+48)
+            serial_hw_write(digi1+48)
+            serial_hw_write(digi0+48)
+            cr_lf
+         end loop
+         sd_stop_read()
+         testigo = off
+      ; si es llegó "q" quiere decir que a continuación vienen wavs...
+      elsif desde_pc == "q" then
+         testigo = on
+         ; recibir el stream de bytes y escribirlos en la SD
+         sd_start_write(sector_inicial)
+         while true loop
+            desde_pc = serial_hw_data
+            if bandera == 0 then
+               low_byte = desde_pc
+               bandera = 1
+            else
+               high_byte = desde_pc
+               bandera = 0
+               sd_write_data(low_byte, high_byte)
+            end if
+            contador = contador + 1
+            if desde_pc == 0 then
+               if cuenta_ceros == 5 then
+                  exit loop
+               else
+                  cuenta_ceros = cuenta_ceros + 1
+               end if
+            end if
+         end loop
+         sd_write_to_sector_end(0x00)
+         ; escribir dos sectores completo en blanco, como separación entre wavs
+         for 512 loop
+             sd_write_data(0,0)
+         end loop
+         sd_stop_write()
+         testigo = off
+         sector_inicial = (contador/512) + 2
+
+      elsif desde_pc == "8" then       ; leer datos registro índice del wav solicitado y reproducirlo
+         desde_pc = serial_hw_data
+         orden = desde_pc - 48
+         ; determinar cantidad de wavs a partir del índice
+         deter_cant_wavs
+         ; si orden fuese mayor que cantidad_wavs no hacer nada, orden inválida
+         if orden <= cantidad_wavs then
+            testigo = on
+            sd_start_read(1)
+            ; avanzo tantos saltos de 2 * 5 bytes como sea el orden - 1
+            if orden > 1 then
+               orden = (orden -1 ) * 5
+               sd_read_pulse(orden)
+            end if
+            bandera = false
+            i= 0
+            ; leo los sguientes 10 bytes de la SD, donde está el registro que me interesa
+            for 10 using i loop
+               if !bandera then
+                  sd_read_data(low_byte, high_byte)
+                  arreglo_indice[i] = low_byte
+                  bandera = true
+               else
+                  arreglo_indice[i] = high_byte
+                  bandera = false
+               end if
+            end loop
+            sd_stop_read()
+            testigo = off
+
+            var dword set_inc
+            var byte sct[4] at set_inc
+            var dword taman
+            var byte tam[4] at taman
+
+            sct[3] = arreglo_indice[2]
+            sct[2] = arreglo_indice[3]
+            sct[1] = arreglo_indice[4]
+            sct[0] = arreglo_indice[5]
+
+            tam[3] = arreglo_indice[6]
+            tam[2] = arreglo_indice[7]
+            tam[1] = arreglo_indice[8]
+            tam[0] = arreglo_indice[9]
+
+            ; ------------------------------------------------------------------
+            ; reproducir el wav pedido
+            testigo = on
+            TMR1IE = on
+            ; leer bytes desde la tarjeta SD y mandarlos al puerto B, donde está conectados
+            ; un DAC0800 y un amplificador de audio
+            sd_start_read(set_inc)  ; alistar sd card para lectura sectores predefinidos (que debe coincidir con los escritos antes)
+            contador = 1
+            while contador <= taman loop
+               if Flag_tmr1 then
+                  if !bandera then
+                     sd_read_data(low_byte, high_byte)
+                     PORTB = low_byte
+                     bandera = true
+                  else
+                     PORTB = high_byte
+                     bandera = false
+                  end if
+                  Flag_tmr1 = false
+                  contador = contador + 1
+               end if
+            end loop
+            contador = 1
+            TMR1IE = off
+            sd_stop_read()
+            testigo = off
+            ; ------------------------------------------------------------------
+         else
+            msg_serial(msg_error,1)
+         end if
+      elsif desde_pc == "1" then       ; como testigo de comunicación
+         msg_serial(msg_ok,1)
+      elsif desde_pc == "2" then       ; para borrar sectores iniciales de la SD y dejarlos en 0
+         testigo = on
+         bandera_indice = true
+         sd_start_write(1)
+         for 200_000 loop              ; sectores x 2 bytes x 256 (sector = 512 bytes)
+            sd_write_data(0,0)
+         end loop
+         sd_stop_write()
+         testigo = off
+         msg_serial(msg_listo,1)
+      elsif desde_pc == "3" then       ; para probar procedimiento deter_cant_wavs
+         deter_cant_wavs
+         serial_hw_write(byte(cantidad_wavs+48))
+      end if
+    end if
+end loop
+

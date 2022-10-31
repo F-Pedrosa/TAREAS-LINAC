@@ -1,0 +1,173 @@
+-- Title: Library for communicating with SD memory cards
+-- Author: Matthew Schinkel - borntechi.com, copyright (c) 2009, all rights reserved.
+-- Adapted-by:   ct changed pin a4 ss to pin_c2
+-- Compiler: >=2.4l
+-- mod ct 13/11/09   and 8/12/09 pins defined elsewhere
+--
+
+include 16f877
+
+pragma target OSC HS
+pragma target clock 20_000_000
+pragma target WDT  disabled
+pragma target LVP  disabled
+
+include delay
+
+; setup rs-232 x hardware
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+
+; led testigo
+alias     led                is pin_c0
+alias     led_direction      is pin_c0_direction
+
+; setup spi e inclusión librería spi (el hardware para comunicarse con la SD)
+include spi_master_hw
+spi_init(SPI_MODE_11,SPI_RATE_FOSC_4)
+; definir entradas/salidas spi (no hay mucha alternativa, las fija el hard, excepto a ChipSelect)
+pin_sdi_direction = input    ; entrada datos spi
+pin_sdo_direction = output   ; salida datos spi
+pin_sck_direction = output   ; clock spi (salida)
+; spi chip select pin
+ALIAS chip_select_direction   is pin_c2_direction
+ALIAS chip_select             is pin_c2
+chip_select_direction = output    ; pin chip select como salida
+chip_select = low                 ; arrancar con chip slect en 0
+
+; incluir librería sd card
+include sd_card
+sd_init()       ; inicializar la tarjeta sd
+
+const byte msg_inicio[] = "Iniciando programa y esperando comando..."
+;const byte msg0[] = "Leyendo CID y CSD de la tarjeta"
+;const byte msg1[] = "Leyendo MBR"
+const byte msg2[] = "Escribiendo muchos sectores...."
+const byte msg3[] = "Leyendo Sector: "
+const byte msg4[] = "Listo!"
+
+procedure cr_lf is
+   serial_hw_write (13)
+   serial_hw_write (10)
+end procedure
+
+; Para convertir un word en 4 dígitos separados.
+procedure word2digits( byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+   var word miles = 0
+   var byte centena = 0
+   var byte decena = 0
+
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = byte(numero / 100)
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+end procedure
+
+
+; ---------------------------------------------------------------------
+;                             PRINCIPAL
+; ---------------------------------------------------------------------
+
+var bit bandera = false
+var byte y = 0
+var byte low_byte, high_byte, desde_pc          ; variables envío y recepción datos, SD y rs232
+
+_usec_delay(100_000)                  ; esperar alimentación se estabilice
+trisc = 0b_0001_0000                  ; <---- y esto??? es necesario redefinir acá????
+
+cr_lf
+y = 0
+for count(msg_inicio) using y loop
+   serial_hw_write (msg_inicio[y])
+end loop
+cr_lf
+; ---------------------------------------------------------------------
+low_byte = "5"
+high_byte = "6"
+; ---------------------------------------------------------------------
+led = on
+; ---------------------------------------------------------------------
+
+
+; lazo que espera que llegue la orden desde la PC para empezar a grabar en la SD
+while bandera ==  false loop
+   if Serial_HW_Read(desde_pc) then
+      if desde_pc == "1" then
+         bandera = true
+         serial_hw_write ("O")
+         serial_hw_write ("K")
+         cr_lf
+         exit loop
+      end if
+   end if
+end loop
+
+
+
+
+cr_lf
+y = 0
+for count(msg2) using y loop
+   serial_hw_write (msg2[y])
+end loop
+cr_lf
+
+sd_start_write(2)                       ; número de sector desde donde arranca la escritura consecutiva
+for 256000 loop                         ; 256000 = 256*1000  o sea 1000 sectores x 2 bytes x 256 (sector = 512 bytes)
+    sd_write_data(low_byte, high_byte)  ; el número 1000 no tiene ningún sentido especial, es sólo por probar.
+end loop
+sd_stop_write()
+  
+cr_lf
+y = 0
+for count(msg4) using y loop
+   serial_hw_write (msg4[y])
+end loop
+cr_lf
+; ---------------------------------------------------------------------
+delay_100ms(10)                         ; retardo para advertir mensaje con claridad
+; ---------------------------------------------------------------------
+const word sector_a_leer = 1000
+
+cr_lf
+y = 0
+for count(msg3) using y loop
+   serial_hw_write (msg3[y])
+end loop
+var byte mil,cien,diez,uno
+word2digits(mil,cien,diez,uno,sector_a_leer)
+serial_hw_write(mil+48)
+serial_hw_write(cien+48)
+serial_hw_write(diez+48)
+serial_hw_write(uno+48)
+cr_lf
+
+delay_100ms(10)
+
+; leer algunos de los datos recién escritos
+sd_start_read(sector_a_leer)  ; alistar sd card para lectura sectores predefinidos
+for 256 loop                          ; leer 1 sector (256 palabras=512 bytes)
+  sd_read_data (low_byte, high_byte)  ; leer 2 bytes de datos
+  serial_hw_write (low_byte)          ; enviar x rs232
+  serial_hw_write (high_byte)         ; idem
+end loop
+sd_stop_read()                        ; indicar tarjeta sd que terminó la lectura
+led = off
+
+y = 0
+cr_lf
+for count(msg4) using y loop
+   serial_hw_write (msg4[y])
+end loop
+cr_lf
+; ---------------------------------------------------------------------

@@ -1,0 +1,149 @@
+include 16f877
+
+pragma target OSC HS
+pragma target clock 20_000_000
+--
+pragma target WDT  disabled
+pragma target LVP  disabled
+
+include delay
+
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+
+; ======== SETUP SPI ==========
+; librería spi
+include spi_master_hw
+; definir  entradas/salidas
+pin_sdi_direction = input    ; spi input
+pin_sdo_direction = output   ; spi output
+pin_sck_direction = output   ; spi clock
+; pin de chip select del bus spi
+ALIAS chip_select_direction   is pin_c2_direction
+ALIAS chip_select             is pin_c2
+chip_select_direction = output    ; pin chip select como salida
+chip_select = low                 ; arrancar con chip slect en 0, deshabilita la SD al estar en alto
+--
+spi_init(SPI_MODE_11,SPI_RATE_FOSC_4) ; setea velocidad y modo del bus SPI
+; incluye la librería específica para la SD
+include sd_card
+; e inicializa la tarjeta SD
+sd_init()
+; ===============================
+
+var bit bandera = false
+
+var byte lo_byte = 0
+var byte hi_byte = 0
+
+var byte y = 0
+
+; Estos alias se agregan para corregir incompatibilidades de nombres
+; entre diferentes versiones de librarías (JalLib).
+alias TMR1IE is PIE1_TMR1IE
+alias TMR1if is PIR1_TMR1IF
+
+; led testigo
+alias testigo is pin_c0
+pin_c0_direction = output
+
+portb_direction = all_output
+
+pin_d2_direction = output
+
+alias test_point is pin_d2
+
+; ============================ PROCEDIMIENTO INTERRUPCIÓN TIMER1 =============================
+OPTION_REG = 0
+; Habilitar interrupciones de periféricos (entre ellos TIMER1)
+INTCON = 0b_1100_0000
+; Setear TMR1 en modo free run, con oscilador interno y sin prescaler
+T1CON = 0b0000_0101
+; Y habilitar TIMER1
+TMR1IE = on
+; valores de inicialización necesarios para 1/22050
+const byte InitTMR1H = 255
+;const byte InitTMR1L = 29
+const byte InitTMR1L = 51
+var bit Flag_tmr1 = false
+; rutina interrupción TMR1 propiamente dicha, que se ejecuta cada aprox. 45 usegs.
+procedure TMR1_ISR is
+  pragma interrupt
+  if TMR1if then
+     ; Resetear bandera
+     TMR1if = low
+     ; Reinicializar TMR1
+     asm clrf TMR1L
+     TMR1H = InitTMR1H
+     TMR1L = InitTMR1L
+     Flag_tmr1 = true
+
+     test_point = !test_point
+     
+  end if
+end procedure
+
+procedure reproducir_audio is
+  if Flag_tmr1 then
+     if !bandera then
+        sd_read_data(lo_byte, hi_byte)
+        PORTB = lo_byte
+        bandera = true
+     else
+        PORTB = hi_byte
+        bandera = false
+     end if
+     Flag_tmr1 = false
+  end if
+end procedure
+
+; ================================================================================
+; =============================  PRINCIPAL =======================================
+; ================================================================================
+
+TMR1IE = off
+test_point = off
+
+; retardo para estabilizar la alimentación
+_usec_delay(100_000)
+
+; lazo para evitar el chasquido de encendido, al reproducir un wav desde la SD
+y = 0
+portb = 0
+for 128 using y loop
+    portb = y
+    _usec_delay(25)
+end loop
+
+testigo = on
+for 3 loop
+   delay_100ms(10)
+end loop
+testigo = off
+
+sd_start_read(2)
+
+var byte desde_pc = 0
+
+forever loop
+   if Serial_hw_read(desde_pc) then
+      if desde_pc == "a" then
+         TMR1IE = on
+      elsif desde_pc == "b" then
+         TMR1IE = off
+         sd_stop_read()
+      elsif desde_pc == "1" then
+         serial_hw_write ("O")
+         serial_hw_write ("K")
+         serial_hw_write (13)
+         serial_hw_write (10)
+      end if
+   end if
+
+   ; este procedimiento se ejecutará sólo si la interrupción está habilitada, es decir,
+   ; si TMR1IE está en on lo cual pondrá a Flag_tmr1 a true cada 1/22050 segundos.
+   reproducir_audio
+   
+end loop
+

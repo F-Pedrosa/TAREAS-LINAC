@@ -1,0 +1,13 @@
+jal 2.4m (compiled Dec 26 2009)
+generating p-code
+0 errors, 0 warnings
+6253 tokens, 136751 chars; 3714 lines; 8 files
+generating PIC code pass 1
+generating PIC code pass 2
+writing result
+Code area: 2801 of 8192 used (words)
+
+Data area: 187 of 352 used
+Software stack available: 96 bytes
+Hardware stack depth 8 of 8
+

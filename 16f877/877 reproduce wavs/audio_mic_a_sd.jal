@@ -1,0 +1,257 @@
+; Firmware para adquirir audio desde un micrófono electret al PIC y grabar en la SD, para luego
+; reproducir estos datos grabados
+include 16f877
+; -----------------------------------------------------------
+pragma target OSC HS
+pragma target clock 20_000_000
+pragma target WDT  disabled
+pragma target LVP  disabled
+; -----------------------------------------------------------
+const bit ADC_HIGH_RESOLUTION = false
+; 1 canal analógico
+const byte ADC_NCHANNEL = 1
+; sin referencias de tensión
+const byte ADC_NVREF = 0
+include adc
+adc_init()
+; -----------------------------------------------------------
+; setup rs-232 x hardware
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+; -----------------------------------------------------------
+; setup spi e inclusión librería spi (el hardware para comunicarse con la SD)
+include spi_master_hw
+spi_init(SPI_MODE_11,SPI_RATE_FOSC_4)
+; definir entradas/salidas spi (no hay mucha alternativa, las fija el hard, excepto a ChipSelect)
+pin_sdi_direction = input    ; entrada datos spi
+pin_sdo_direction = output   ; salida datos spi
+pin_sck_direction = output   ; clock spi (salida)
+; spi chip select pin
+ALIAS chip_select_direction   is pin_c2_direction
+ALIAS chip_select             is pin_c2
+chip_select_direction = output    ; pin chip select como salida
+chip_select = low                 ; arrancar con chip slect en 0
+; incluir librería sd card
+include sd_card
+sd_init()       ; inicializar la tarjeta sd
+; -----------------------------------------------------------
+
+; led testigo
+alias testigo is pin_c0
+pin_c0_direction = output
+alias test_point is pin_d2
+pin_d2_direction = output
+
+portb_direction = all_output   ; por este puerto salen los datos hacia el DAC
+
+; algunos de estos mensajes no se usan, limpiar....
+const byte msg_inicio[] = "Iniciando programa y esperando comando..."
+const byte msg_listo[] = "Listo!"
+const byte msg_ok[] = "OK"
+
+; otras globales
+var byte desde_pc = 0
+var dword tamanio = 0
+var byte indice = 0
+var byte individual[12]
+var byte indi[4] at tamanio
+var byte low_byte, high_byte
+var bit bandera = 0
+var byte y = 0
+var byte bloque_indice[10]
+
+var byte digi5 = 0
+var byte digi4 = 0
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+var word contador = 0
+
+var word contador2 = 0
+
+var dword sector_inicial = 2
+var byte cuenta_ceros = 0
+
+; Estos alias se agregan para corregir incompatibilidades de nombres
+; entre diferentes versiones de librarías (JalLib).
+alias TMR1IE is PIE1_TMR1IE
+alias TMR1if is PIR1_TMR1IF
+
+; --------------------------------------- Procedimientos --------------------------------------------
+
+; ============================ PROCEDIMIENTO INTERRUPCIÓN TIMER1 =============================
+OPTION_REG = 0
+; Habilitar interrupciones de periféricos (entre ellos TIMER1)
+INTCON = 0b_1100_0000
+; Setear TMR1 en modo free run, con oscilador interno y sin prescaler
+T1CON = 0b0000_0101
+; Y habilitar TIMER1
+TMR1IE = on
+; valores de inicialización correctos para Ttimer1 = 1/22050 Hz, ajustados manualmente con frecuencímetro.
+const byte InitTMR1H = 255
+const byte InitTMR1L = 51
+var bit Flag_tmr1 = false
+; rutina interrupción TMR1 propiamente dicha, que se ejecuta cada aprox. 45 usegs.
+procedure TMR1_ISR is
+  pragma interrupt
+  if TMR1if then
+     ; Resetear bandera
+     TMR1if = low
+     ; Reinicializar TMR1
+     asm clrf TMR1L
+     TMR1H = InitTMR1H
+     TMR1L = InitTMR1L
+     Flag_tmr1 = true
+  end if
+end procedure
+; ============================================================================================
+
+procedure cr_lf is
+   serial_hw_write (13)
+   serial_hw_write (10)
+end procedure
+
+procedure adquirir_audio is
+; el PIC puede adquirir hasta 10 bits, pero como sólo se cuenta con un
+; DAC de 8 bits, se adquirirá de a 1 byte.
+  var byte lbyte = 0
+  var byte hbyte = 0
+
+  if Flag_tmr1 then
+     ; adquirir dato de audio y grabar en SD, leer primer canal analógico (0)
+     if !bandera then
+        lbyte = adc_read_low_res(0)
+        bandera = true
+     else
+        hbyte = adc_read_low_res(0)
+        sd_write_data(lbyte, hbyte)  ; escribir datos en la tarjeta
+        bandera = false
+     end if
+;     ; *******************************************************
+;     ; recordar que las SD escriben en sectores de 512 bytes
+;     ; *******************************************************
+;     if contador == 512 then
+;        contador = 0
+;     else
+;        contador = contador + 1
+;     end if
+
+     Flag_tmr1 = false
+     test_point = !test_point
+  end if
+
+end procedure
+
+
+; ------------------------------- PRINCIPAL ------------------------------------------------
+
+TMR1IE = off    ; para que el programa arranque con la interrupción de Timer1 apagada.
+
+; lazo para evitar el chasquido de encendido, al reproducir un wav desde la SD
+y = 0
+portb = 0
+for 128 using y loop
+    portb = y
+    _usec_delay(25)
+end loop
+
+; testigo luminoso
+testigo = on
+for 2 loop
+   delay_100ms(10)
+end loop
+testigo = off
+
+var byte cuentador = 1
+
+forever loop
+  if Serial_hw_read(desde_pc) then
+    if desde_pc == "a" then
+       testigo = on
+       ; habilitar grabación
+       sd_start_write(2)                   ; alistar la SD para escritura
+       TMR1IE = on
+    elsif desde_pc == "b" then
+       ; deshabilitar grabación
+       TMR1IE = off
+       testigo = off
+       sd_write_to_sector_end(0x00)
+       sd_stop_write()
+    elsif desde_pc == "c" then
+       sd_start_read(2)
+       testigo = on
+       TMR1IE = on
+       ; leer bytes desde la tarjeta SD y mandarlos al puerto B, donde está conectados
+       ; un DAC0800 y un amplificador de audio
+       contador2 = 1
+       while contador2 <= 229888 loop
+          if Flag_tmr1 then
+             if !bandera then
+                sd_read_data(low_byte, high_byte)
+                PORTB = low_byte
+                bandera = true
+             else
+                PORTB = high_byte
+                bandera = false
+             end if
+             Flag_tmr1 = false
+             contador2 = contador2 + 1
+             test_point = !test_point
+          end if
+       end loop
+       contador2 = 1
+       TMR1IE = off
+       sd_stop_read()
+       testigo = off
+    elsif desde_pc == "d" then
+       sd_start_read(2)
+       testigo = on
+       TMR1IE = on
+       ; leer bytes desde la tarjeta SD y mandarlos al puerto B, donde está conectados
+       ; un DAC0800 y un amplificador de audio
+       contador2 = 1
+       while contador2 <= 229888 loop
+          if Flag_tmr1 then
+             if cuentador == 9 then
+               if !bandera then
+                  sd_read_data(low_byte, high_byte)
+                  PORTB = low_byte
+                  bandera = true
+               else
+                  PORTB = high_byte
+                  bandera = false
+               end if
+               test_point = !test_point
+               cuentador = 1
+             else
+               cuentador = cuentador + 1
+             end if
+             Flag_tmr1 = false
+             contador2 = contador2 + 1
+          end if
+       end loop
+       contador2 = 1
+       TMR1IE = off
+       sd_stop_read()
+       testigo = off
+    elsif desde_pc == "1" then       ; como testigo de comunicación
+       serial_hw_write("O")
+       serial_hw_write("K")
+       cr_lf
+    elsif desde_pc == "2" then       ; para borrar sectores iniciales de la SD y dejarlos en 0
+       testigo = on
+       sd_start_write(1)
+       for 800_000 loop              ; sectores x 2 bytes x 256 (sector = 512 bytes)
+          sd_write_data(0,0)
+       end loop
+       sd_stop_write()
+       testigo = off
+    end if
+  end if
+
+  adquirir_audio
+
+end loop

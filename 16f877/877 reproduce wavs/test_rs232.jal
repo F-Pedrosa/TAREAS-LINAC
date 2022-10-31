@@ -1,0 +1,52 @@
+include 16f877
+
+pragma target OSC HS
+pragma target clock 20_000_000
+pragma target WDT  disabled
+pragma target LVP  disabled
+
+include delay
+
+; setup rs-232 x hardware
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+
+; led testigo
+alias  testigo is pin_c0
+pin_c0_direction = output
+
+portb_direction = all_output
+
+const byte msg_inicio[] = "Iniciando programa y esperando comando..."
+
+; led testigo
+alias     led                is pin_c0
+pin_c0_direction = output
+
+procedure cr_lf is
+   serial_hw_write (13)
+   serial_hw_write (10)
+end procedure
+
+
+var byte desde_pc = 0
+var byte y = 0
+
+for count(msg_inicio) using y loop
+   serial_hw_write (msg_inicio[y])
+end loop
+cr_lf
+
+
+
+forever loop
+   if Serial_hw_read(desde_pc) then
+      if desde_pc == "1" then
+         serial_hw_write ("O")
+         serial_hw_write ("K")
+         serial_hw_write ("!")
+         cr_lf
+      end if
+   end if
+end loop
