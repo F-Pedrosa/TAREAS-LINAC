@@ -1,0 +1,396 @@
+; Librería EXTENDIDA/COMPLETA MEJORADA para convertir el valor leído del sensor Sharp a cm.
+
+; Uso: invocar en programa principal al procedure valor_a_cm pasándole
+; como primer parámetro el valor devuelto por el Sharp (un word) y recibiendo
+; como segundo parámetro la distancia en cm (un byte)
+;
+;      valor_a_cm(valor,centímetros)
+;
+; luego el valor de cms ya puede pasarse por la bin2digits e imprimir x LCD.
+
+procedure valor_a_cm(word in valor, byte out cms) is
+   if valor > 600 then
+      cms = 254
+   end if
+   if valor <= 600 & valor >= 582 then
+      cms=13
+      return
+   end if
+   if valor <= 581 & valor >= 566 then
+      cms=14
+      return
+   end if
+   if valor <= 565 & valor >= 550 then
+      cms=15
+      return
+   end if
+   if valor <= 549 & valor >= 535 then
+      cms=16
+      return
+   end if
+   if valor <= 534 & valor >= 525 then
+      cms=17
+      return
+   end if
+   if valor <= 524 & valor >= 515 then
+      cms=18
+      return
+   end if
+   if valor <= 514 & valor >= 506 then
+      cms=19
+      return
+   end if
+   if valor <= 505 & valor >= 496 then
+      cms=20
+      return
+   end if
+   if valor <= 495 & valor >= 483 then
+      cms=21
+      return
+   end if
+   if valor <= 482 & valor >= 473 then
+      cms=22
+      return
+   end if
+   if valor <= 472 & valor >= 462 then
+      cms=23
+      return
+   end if
+   if valor <= 461 & valor >= 452 then
+      cms=24
+      return
+   end if
+   if valor <= 451 & valor >= 442 then
+      cms=25
+      return
+   end if
+   if valor <= 441 & valor >= 428 then
+      cms=26
+      return
+   end if
+   if valor <= 427 & valor >= 417 then
+      cms=27
+      return
+   end if
+   if valor <= 416 & valor >= 405 then
+      cms=28
+      return
+   end if
+   if valor <= 404 & valor >= 393 then
+      cms=29
+      return
+   end if
+   if valor <= 392 & valor >= 383 then
+      cms=30
+      return
+   end if
+   if valor <= 382 & valor >= 369 then
+      cms=31
+      return
+   end if
+   if valor <= 368 & valor >= 357 then
+      cms=32
+      return
+   end if
+   if valor <= 356 & valor >= 348 then
+      cms=33
+      return
+   end if
+   if valor <= 347 & valor >= 338 then
+      cms=34
+      return
+   end if
+   if valor <= 337 & valor >= 330 then
+      cms=35
+      return
+   end if
+   if valor <= 329 & valor >= 320 then
+      cms=36
+      return
+   end if
+   if valor <= 319 & valor >= 309 then
+      cms=37
+      return
+   end if
+   if valor <= 308 & valor >= 300 then
+      cms=38
+      return
+   end if
+   if valor <= 299 & valor >= 295 then
+      cms=39
+      return
+   end if
+   if valor <= 294 & valor >= 290 then
+      cms=40
+      return
+   end if
+   if valor <= 289 & valor >= 283 then
+      cms=41
+      return
+   end if
+   if valor <= 282 & valor >= 275 then
+      cms=42
+      return
+   end if
+   if valor <= 274 & valor >= 268 then
+      cms=43
+      return
+   end if
+   if valor <= 267 & valor >= 262 then
+      cms=44
+      return
+   end if
+   if valor <= 261 & valor >= 255 then
+      cms=45
+      return
+   end if
+   if valor <= 254 & valor >= 250 then
+      cms=46
+      return
+   end if
+   if valor <= 249 & valor >= 246 then
+      cms=47
+      return
+   end if
+   if valor <= 245 & valor >= 241 then
+      cms=48
+      return
+   end if
+   if valor <= 240 & valor >= 235 then
+      cms=49
+      return
+   end if
+   if valor <= 234 & valor >= 230 then
+      cms=50
+      return
+   end if
+   if valor <= 229 & valor >= 225 then
+      cms=51
+      return
+   end if
+   if valor <= 224 & valor >= 220 then
+      cms=52
+      return
+   end if
+   if valor <= 219 & valor >= 215 then
+      cms=53
+      return
+   end if
+   if valor <= 214 & valor >= 211 then
+      cms=54
+      return
+   end if
+   if valor <= 210 & valor >= 207 then
+      cms=55
+      return
+   end if
+   if valor <= 206 & valor >= 203 then
+      cms=56
+      return
+   end if
+   if valor <= 202 & valor >= 200 then
+      cms=57
+      return
+   end if
+   if valor <= 199 & valor >= 197 then
+      cms=58
+      return
+   end if
+   if valor <= 196 & valor >= 193 then
+      cms=59
+      return
+   end if
+   if valor <= 192 & valor >= 188 then
+      cms=60
+      return
+   end if
+   if valor <= 187 & valor >= 185 then
+      cms=61
+      return
+   end if
+   if valor <= 184 & valor >= 182 then
+      cms=62
+      return
+   end if
+   if valor == 181 | valor == 180 then
+      cms=63
+      return
+   end if
+   if valor <= 179 & valor >= 177 then
+      cms=64
+      return
+   end if
+   if valor <= 176 & valor >= 174 then
+      cms=65
+      return
+   end if
+   if valor <= 173 & valor >= 171 then
+      cms=66
+      return
+   end if
+   if valor == 170 | valor == 169 then
+      cms=67
+      return
+   end if
+   if valor <= 168 & valor >= 166 then
+      cms=68
+      return
+   end if
+   if valor <= 165 & valor >= 163 then
+      cms=69
+      return
+   end if
+   if valor == 162 | valor == 161 then
+      cms=70
+      return
+   end if
+   if valor <= 160 & valor >= 158 then
+      cms=71
+      return
+   end if
+   if valor == 157 | valor == 156 then
+      cms=72
+      return
+   end if
+   if valor == 155 | valor == 154 then
+      cms=73
+      return
+   end if
+   if valor == 153 | valor == 152 then
+      cms=74
+      return
+   end if
+   if valor == 151 | valor == 150 then
+      cms=75
+      return
+   end if
+   if valor == 149 | valor == 148 then
+      cms=76
+      return
+   end if
+   if valor == 147 | valor == 146 then
+      cms=77
+      return
+   end if
+   if valor == 145 | valor == 144 then
+      cms=78
+      return
+   end if
+   if valor == 143 | valor == 142 then
+      cms=79
+      return
+   end if
+   if valor == 141 | valor == 140 then
+      cms=80
+      return
+   end if
+   if valor == 139 | valor == 138 then
+      cms=81
+      return
+   end if
+   if valor == 137 | valor == 136 then
+      cms=82
+      return
+   end if
+   if valor == 135 | valor == 134 then
+      cms=83
+      return
+   end if
+   if valor == 133 | valor == 132 then
+      cms=84
+      return
+   end if
+   if valor == 131 | valor == 130 then
+      cms=85
+      return
+   end if
+   if valor == 129 | valor == 128 then
+      cms=86
+      return
+   end if
+   if valor == 127 then
+      cms=87
+      return
+   end if
+   if valor == 126 | valor == 125 then
+      cms=88
+      return
+   end if
+   if valor == 124 then
+      cms=89
+      return
+   end if
+   if valor == 123 | valor == 122 then
+      cms=90
+      return
+   end if
+   case valor of
+         121:   cms=91
+         120:   cms=92
+         119:   cms=93
+         118:   cms=93
+         117:   cms=94
+         116:   cms=94
+         115:   cms=95
+         114:   cms=95
+         113:   cms=96
+         112:   cms=96
+         111:   cms=97
+         110:   cms=98
+         109:   cms=99
+         108:   cms=100
+         107:   cms=101
+         106:   cms=102
+         105:   cms=103
+         104:   cms=104
+         103:   cms=105
+         102:   cms=106
+         101:   cms=107
+         100:   cms=108
+         99:   cms=109
+         98:   cms=110
+         97:   cms=111
+         96:   cms=112
+         95:   cms=113
+         94:   cms=114
+         93:   cms=115
+         92:   cms=116
+         91:   cms=117
+         90:   cms=118
+         89:   cms=119
+         88:   cms=120
+         87:   cms=121
+         86:   cms=122
+         85:   cms=123
+         84:   cms=124
+         83:   cms=125
+         82:   cms=126
+         81:   cms=127
+         80:   cms=128
+         79:   cms=129
+         78:   cms=130
+         77:   cms=131
+         76:   cms=132
+         75:   cms=133
+         74:   cms=134
+         73:   cms=135
+         72:   cms=136
+         71:   cms=137
+         70:   cms=140
+         69:   cms=142
+         68:   cms=144
+         67:   cms=146
+         66:   cms=148
+         65:   cms=150
+         64:   cms=152
+         63:   cms=154
+         62:   cms=156
+         61:   cms=158
+         60:   cms=159
+         59:   cms=161
+   end case
+   if valor <= 58 then
+      cms = 0         ; fuera de rango
+      return
+   end if
+end procedure

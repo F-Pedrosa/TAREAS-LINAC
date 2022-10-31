@@ -1,0 +1,33 @@
+; Firm para verificar uso memoria código
+
+; Librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+; setear direcciones
+portb_direction = all_output
+
+; librería para conversión desde el valor entregado por el Sharp a un número de cm
+include lib_sharp_completa_mejorada
+
+alias testigo is pin_b7
+
+
+var word total = 0
+var byte centimetros = 0
+
+testigo = off
+testigo = on
+testigo = off
+
+; --------------------------------------------------------------------------------------
+forever loop
+   ; invocar procedimiento de librería q convierte a cm
+   valor_a_cm(total,centimetros)
+end loop

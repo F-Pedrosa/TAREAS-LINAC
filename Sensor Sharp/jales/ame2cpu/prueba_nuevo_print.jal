@@ -1,0 +1,105 @@
+; Firmware unificado para la AME2 que adquiere (cronizado x RTC) del sensor SHARP, promedia, decide si graba
+; ante cambios, envía trama a CPU, recibe pedidos de esta (puesta en hora RTC, envío de tramas específicas).
+; librería de dispositivo
+include 16f877a
+; -------------------------------
+pragma target OSC HS
+pragma target clock 20_000_000
+; sin watchdog, sin LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+; -------------------------------
+; Seteos para la parte de comunicaciones seriales x hardware
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+; -------------------------------
+; Librería que simplifica algo el formateo de los datos enviados serialmente hacia la PC
+include print
+include delay
+
+; Constantes y declaraciones a usarse por la librería del LCD
+const byte LCD_ROWS     = 2               -- 1, 2 or 4 lines
+const byte LCD_CHARS    = 16              -- 8, 16 or 20 chars per line
+; Alias para las líneas de handshake:
+alias  lcd_rs  is  pin_b4        ; una línea para RS
+alias  lcd_en  is  pin_b5        ; una línea para EN
+; Alias para las 4 líneas datos:
+alias  lcd_d4  is  pin_b0        ; lcd databit d4
+alias  lcd_d5  is  pin_b1        ; lcd databit d5
+alias  lcd_d6  is  pin_b2        ; lcd databit d6
+alias  lcd_d7  is  pin_b3        ; lcd databit d7
+; Setear direcciones del puerto B
+portb_direction = all_output
+; Incluir librería e inicialización
+include lcd_hd44780_4
+lcd_init()
+
+alias testigo is pin_b7
+pin_b7_direction = output
+
+
+procedure print_byte_dec_2digs(volatile byte out device, dword in data, sbyte in divisor_index) is
+   var byte digit
+   var bit  no_digits_printed_yet;
+
+   if (data == 0) then
+      device = "0"
+      device = "0"
+      return
+   end if
+
+   no_digits_printed_yet = true
+   while (divisor_index >= 0) loop
+      if (data >= digit_divisor[divisor_index]) then
+         digit = byte ( data / digit_divisor[divisor_index] )
+         data = data % digit_divisor[divisor_index]
+      else
+         digit = 0
+      end if
+      divisor_index = divisor_index - 1
+
+      if ((digit != 0) | (no_digits_printed_yet == false)) then
+         device = digit | "0"
+         no_digits_printed_yet = false
+      else
+         device = "0"
+      end if
+   end loop
+
+end procedure
+
+var byte valor = 0
+
+testigo = off
+testigo = on
+delay_100ms(15)
+testigo = off
+
+forever loop
+   print_byte_dec_2digs(serial_hw_data, valor,1)
+   print_crlf(serial_hw_data)
+
+;   Ejemplo de uso para el ame_cpu_v2.jal, para enviar fecha y hora con 2 digitos donde
+;   arreglo_a_enviar[0 a 5] tiene los 6 bytes de fecha y hora leídos de la trama en eeprom
+
+;   ; fecha
+;   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[0],1)
+;   serial_hw_write(47)              ; barra inclinada
+;   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[1],1)
+;   serial_hw_write(47)              ; barra inclinada
+;   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[2],1)
+;   serial_hw_write(32)              ; espacio
+;   ; hora
+;   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[3],1)
+;   serial_hw_write(58)              ; dos puntos
+;   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[4],1)
+;   serial_hw_write(58)              ; dos puntos
+;   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[5],1)
+
+
+   valor = valor + 1
+   delay_100ms(15)
+
+end loop

@@ -1,0 +1,327 @@
+; firm para una AMExx con 16F877, para conectar el sensor SHARP y grabar en eeprom
+; trama de fecha, hora y valor leído
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+; librería para poder leer y escribir de la eeprom INTERNA del PIC
+include pic_data_eeprom
+
+; I2C pines
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; constantes
+const word _i2c_bus_speed = 1 ; * 100kHz
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+
+; Configurar ADC...
+const bit ADC_HIGH_RESOLUTION = high
+; número canales analógicos
+const byte ADC_NCHANNEL = 1
+; sin referencias de tensión
+const byte ADC_NVREF = ADC_NO_EXT_VREF
+-- We want the fastest possible ADC timing, so we specify here the
+-- minimum TAD value for this chip, which is 0.8 microseconds.
+-- (see datasheet 39632 parameter 130 in table 28-29)
+-- We don't care setting the actual maximum Tad value.
+const ADC_MIN_TAD = 8
+
+; librería ADC (para leer el SHARP)
+include adc
+; inicializarla
+adc_init()
+
+; Constantes y declaraciones a usarse por la librería del LCD
+const byte LCD_ROWS     = 2               -- 1, 2 or 4 lines
+const byte LCD_CHARS    = 16              -- 8, 16 or 20 chars per line
+; alias para handshake:
+alias  lcd_rs  is  pin_b4        ; una línea para RS
+alias  lcd_en  is  pin_b5        ; una línea para EN
+; alias para 4 líneas datos:
+alias  lcd_d4  is  pin_b0         -- lcd databit d4
+alias  lcd_d5  is  pin_b1         -- lcd databit d5
+alias  lcd_d6  is  pin_b2         -- lcd databit d6
+alias  lcd_d7  is  pin_b3         -- lcd databit d7
+; setear direcciones
+portb_direction = all_output
+
+
+; librería e inicialización
+include lcd_hd44780_4
+lcd_init()
+
+alias testigo is pin_b7
+
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+
+var byte dig4 = 0
+var byte dig3 = 0
+var byte dig2 = 0
+var byte dig1 = 0
+var byte dig0 = 0
+
+var word arreglo_mediciones[48]
+var word valor1 = 0
+var word total_a_grabar = 0
+var word direccion = 0
+var word valor_previo = 0
+
+; ==========================================================================================
+
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure word2digits( byte out dig4, byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var word dec_miles = 0
+   var word miles = 0
+   var word centena = 0
+   var byte decena = 0
+
+   dec_miles = numero/10000
+   dig4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   dig2 = byte(centena)
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+   ;------------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+end procedure
+
+; Rutina para escribir  bytes en determinada EEPROM, usando la característica de
+; escritura por páginas de las eeproms, más rápido que byte a byte
+procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+   var byte AX[2] at address
+   var bit resul
+   I2C_start()
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   resul = i2c_transmit_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   resul = i2c_transmit_byte(AX[1])
+   resul = i2c_transmit_byte(AX[0])
+   ; Enviar "página" de bytes (datos) a grabar en eeprom
+   ; empezando por fecha y hora
+   resul = i2c_transmit_byte(anio)
+   resul = i2c_transmit_byte(mes)
+   resul = i2c_transmit_byte(dia)
+   resul = i2c_transmit_byte(hora)
+   resul = i2c_transmit_byte(minuto)
+   resul = i2c_transmit_byte(segundo)
+   ; Convertir word adquirido a un formato de 3 dígitos
+   word2digits( dig4,dig3,dig2, dig1, dig0, valor1 )
+   ; grabar
+   resul = i2c_transmit_byte(dig2)
+   resul = i2c_transmit_byte(dig1)
+   resul = i2c_transmit_byte(dig0)
+   I2C_stop()
+   delay_1ms(4)
+end procedure
+
+
+; ==============================================================================================
+
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+
+
+
+
+
+
+testigo = off
+testigo = on
+delay_100ms(15)
+testigo = off
+
+; para que las lecturas no sean sobreescritas (entran aprox 3640 tramas por eeprom)
+direccion =  Data_EEprom_word(0)
+
+lcd_clear_screen()
+lcd_write_char("O")
+lcd_write_char("K")
+delay_100ms(15)
+lcd_clear_screen()
+
+
+forever loop
+
+   var byte cuenta = 0
+   var word val_mar
+   var byte cantidad
+   var byte y = 0
+   var word total = 0
+   var word promedio = 0
+   var byte indis[2] at val_mar
+   var bit resul
+
+
+   for 5 using cuenta loop
+     ; cargar arreglo de 48 elementos (tamaño fijado por el tema RAM del 16F877)
+      for count(arreglo_mediciones) using y loop
+          adc_read_bytes(0, indis[1], indis[0])
+          arreglo_mediciones[y] =  val_mar      ; esta variable encapsula las otras dos
+          delay_10us(3)                         ; retardo suficiente para que adquiera bien (¿?)
+      end loop
+
+      ; calcular promedio, redondear hacia arriba
+      cantidad = count(arreglo_mediciones)
+      for cantidad using y loop
+          total = total + arreglo_mediciones[y]
+      end loop
+      promedio = (total/cantidad)+1   ; recordar que la división es entera
+
+      ; mostrar valor promedio
+      bin2digits(dig2,dig1,dig0,cuenta)
+      lcd_write_char(dig0+48)
+
+      lcd_write_char(" ")
+      lcd_write_char("P")
+      lcd_write_char("r")
+      lcd_write_char("o")
+      lcd_write_char("m")
+      lcd_write_char(":")
+      lcd_write_char(" ")
+      word2digits(dig4,dig3,dig2,dig1,dig0,promedio)
+      lcd_write_char(dig4+48)
+      lcd_write_char(dig3+48)
+      lcd_write_char(dig2+48)
+      lcd_write_char(dig1+48)
+      lcd_write_char(dig0+48)
+
+      delay_100ms(30)
+      lcd_clear_screen
+      total_a_grabar = total_a_grabar + promedio
+      promedio = 0
+      total = 0
+
+   end loop
+
+   total_a_grabar = (total_a_grabar/5)+1
+
+   ; si hubo cambios en la medición, grabar en eeprom
+;   if (valor_previo == 0) | (total_a_grabar < (valor_previo - 2)) | (total_a_grabar > (valor_previo + 2)) then
+   if (total_a_grabar < (valor_previo - 2)) | (total_a_grabar > (valor_previo + 2)) then
+      valor1 = total_a_grabar        ; necesario por el código de escribir_trama_eeprom
+      obtener_fecha_hora
+      escribir_trama_eeprom(0b1010_0000,direccion)
+      direccion = direccion + 9      ; incrementar la dirección
+      Data_EEprom_Write_word(0, direccion)  ; y guardar nuevo puntero de escritura
+      valor_previo = total_a_grabar
+   end if
+
+end loop

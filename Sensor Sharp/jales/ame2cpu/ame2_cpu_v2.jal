@@ -1,0 +1,835 @@
+; Firmware unificado para la AME2 que adquiere (cronizado por el RTC) del sensor SHARP, promedia, decide si graba
+; ante cambios, envía trama a CPU, recibe pedidos de esta (puesta en hora RTC, envío de tramas específicas).
+
+; Librería de dispositivo
+include 16f877a
+; -------------------------------
+pragma target OSC HS
+pragma target clock 20_000_000
+; sin watchdog, sin LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+; -------------------------------
+; Seteos para la parte de comunicaciones seriales x hardware
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+; -------------------------------
+; Librería que simplifica algo el formateo de los datos enviados serialmente hacia la PC
+include print
+; -------------------------------
+; Librería para poder leer y escribir de la eeprom INTERNA del PIC
+include pic_data_eeprom
+; -------------------------------
+; Pines bus I2C
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; Constantes I2C
+const word _i2c_bus_speed = 1 ; * 100kHz
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; Incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+; -------------------------------
+; Configurar ADC...
+const bit ADC_HIGH_RESOLUTION = high
+; Número canales analógicos
+const byte ADC_NCHANNEL = 1
+; Sin referencias de tensión
+const byte ADC_NVREF = ADC_NO_EXT_VREF
+; Constante q fija la adquisición lo más rápido posible (~20 useg)
+const ADC_MIN_TAD = 8
+; Librería ADC (usaremos el ADC para leer el SHARP)
+include adc
+; Inicializarla
+adc_init()
+; -------------------------------
+; Constantes y declaraciones a usarse por la librería del LCD
+const byte LCD_ROWS     = 2               -- 1, 2 or 4 lines
+const byte LCD_CHARS    = 16              -- 8, 16 or 20 chars per line
+; Alias para las líneas de handshake:
+alias  lcd_rs  is  pin_b4        ; una línea para RS
+alias  lcd_en  is  pin_b5        ; una línea para EN
+; Alias para las 4 líneas datos:
+alias  lcd_d4  is  pin_b0        ; lcd databit d4
+alias  lcd_d5  is  pin_b1        ; lcd databit d5
+alias  lcd_d6  is  pin_b2        ; lcd databit d6
+alias  lcd_d7  is  pin_b3        ; lcd databit d7
+; Setear direcciones del puerto B
+portb_direction = all_output
+; Incluir librería e inicialización
+include lcd_hd44780_4
+lcd_init()
+; -------------------------------
+
+; GLOBALES
+alias testigo is pin_b7
+pin_d1_direction = input
+alias lector_conectado is pin_d1
+
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+
+var byte digi4
+var byte digi3
+var byte digi2
+var byte digi1
+var byte digi0
+
+var word arreglo_mediciones[25]
+var word valor1 = 0
+var word total_a_grabar = 0
+var word valor_previo = 0
+var word direccion = 0
+var word dir = 0
+var byte arreglo_a_enviar[9] = {0,0,0,0,0,0,0,0,0}
+var byte arreglo_tiempo[12] = {0,0,0,0,0,0,0,0,0,0,0,0}
+var word num_orden = 0
+var bit resul
+var byte desde_pc = 0
+var byte y = 0
+var byte cuenta = 0
+
+const byte mensaje_set_rtc[] = "Ingrese fecha y hora según YYMMDDHHMMSS :"
+
+var byte intervalo = 1       ; unidad de intervalo entre mediciones
+
+var byte minuto_inicial = 0
+var byte minuto_final = 0
+
+var byte segundo_inicial = 0
+var byte segundo_final = 0
+
+var bit bandera_tx = false
+
+; ======================================== Procedimientos==================================
+
+; Este procedimiento está tomado del similar de la librería print, modificado para
+; que se imprima el cero precedente, sobre todo para hora/fecha.
+procedure print_byte_dec_2digs(volatile byte out device, dword in data, sbyte in divisor_index) is
+   var byte digit
+   var bit  no_digits_printed_yet;
+
+   if (data == 0) then
+      device = "0"
+      device = "0"
+      return
+   end if
+
+   no_digits_printed_yet = true
+   while (divisor_index >= 0) loop
+      if (data >= digit_divisor[divisor_index]) then
+         digit = byte ( data / digit_divisor[divisor_index] )
+         data = data % digit_divisor[divisor_index]
+      else
+         digit = 0
+      end if
+      divisor_index = divisor_index - 1
+
+      if ((digit != 0) | (no_digits_printed_yet == false)) then
+         device = digit | "0"
+         no_digits_printed_yet = false
+      else
+         device = "0"
+      end if
+   end loop
+
+end procedure
+
+; Rutina que escribe un byte al RTC, sin convertirlo a BCD, sino puro.
+; Ver también procedimiento siguiente.
+procedure writertc ( byte in ad , byte in d ) is
+   i2c_start
+   resul = i2c_transmit_byte ( 0b11010000 ) ; ID modo escritura
+   resul = i2c_transmit_byte ( ad )		; dirección registro a escribir
+   resul = i2c_transmit_byte ( d ) 		; poner dato en registro
+   i2c_stop
+end procedure
+procedure escribir_rtc ( byte in ad , byte in d ) is
+   ; Codificar el dato binario a formato BCD, en que
+   ; almacena los datos el RTC.
+   var byte loc
+   loc = d
+   loc = loc / 10
+   loc = loc * 16
+   d = d % 10
+   loc = loc + d
+   d = loc
+   writertc ( ad , d )
+end procedure
+function dig2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure word2digits( byte out dig4, byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var word dec_miles = 0
+   var word miles = 0
+   var word centena = 0
+   var byte decena = 0
+
+   dec_miles = numero/10000
+   dig4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   dig3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   dig2 = byte(centena)
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = byte(numero)
+
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   ;------------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+   ;------------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+end procedure
+
+; Rutina para escribir  bytes en determinada EEPROM, usando la característica de
+; escritura por páginas de las eeproms, más rápido que byte a byte
+procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+   var byte AX[2] at address
+   I2C_start()
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   resul = i2c_transmit_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   resul = i2c_transmit_byte(AX[1])
+   resul = i2c_transmit_byte(AX[0])
+   ; Enviar "página" de bytes (datos) a grabar en eeprom
+   ; empezando por fecha y hora
+   resul = i2c_transmit_byte(anio)
+   resul = i2c_transmit_byte(mes)
+   resul = i2c_transmit_byte(dia)
+   resul = i2c_transmit_byte(hora)
+   resul = i2c_transmit_byte(minuto)
+   resul = i2c_transmit_byte(segundo)
+   ; Convertir word adquirido a un formato de 3 dígitos
+   word2digits( digi4,digi3,digi2, digi1, digi0, valor1 )
+   ; grabar
+   resul = i2c_transmit_byte(digi2)
+   resul = i2c_transmit_byte(digi1)
+   resul = i2c_transmit_byte(digi0)
+   I2C_stop()
+   delay_1ms(4)
+end procedure
+
+
+procedure leer_trama_eeprom_enviar(word in direcc) is
+   var byte dire[2] at direcc
+   var byte i
+
+   var word total = 0
+
+   ; Comenzar comunicación I2C
+   i2c_start()
+   ; Dirección i2c de la eeprom, modo escritura (para indicar la direcciones internas)
+   resul = i2c_transmit_byte(0xA0) --
+   ; Byte alto dirección a leer
+   resul = resul & i2c_transmit_byte(dire[1])
+   ; Byte bajo dirección a leer
+   resul = resul & i2c_transmit_byte(dire[0])
+   ; Necesario restart del bus
+   i2c_restart()
+   ; Dirección i2c de la eeprom, modo lectura (de la direcciones interna)
+   resul = resul & i2c_transmit_byte(0xA1)
+   ; cargar arreglo con trama de datos (que tiene 9 bytes)
+   for 8 using i loop
+       arreglo_a_enviar[i] = i2c_receive_byte(true)
+   end loop
+   ; Problemas raros llevaron a esta solución mixta de carga del arreglo
+   arreglo_a_enviar[8] = i2c_receive_byte(false)
+   ; Terminar comunicación I2C
+   i2c_stop()
+
+   ; Enviar trama formateada serialmente a PC
+   ; 1ro, número de orden
+   word2digits(digi4,digi3,digi2,digi1,digi0,num_orden)
+   serial_hw_write(digi3+48)
+   serial_hw_write(digi2+48)
+   serial_hw_write(digi1+48)
+   serial_hw_write(digi0+48)
+;   serial_hw_write(" ")
+   serial_hw_write(32)              ; espacio
+   num_orden = num_orden + 1
+   ; fecha
+   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[0],1)
+;   serial_hw_write("/")
+   serial_hw_write(47)              ; barra inclinada
+   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[1],1)
+;   serial_hw_write("/")
+   serial_hw_write(47)              ; barra inclinada
+   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[2],1)
+;  serial_hw_write(" ")
+   serial_hw_write(32)              ; espacio
+   ; hora
+   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[3],1)
+;   serial_hw_write(":")
+   serial_hw_write(58)              ; dos puntos
+   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[4],1)
+;   serial_hw_write(":")
+   serial_hw_write(58)              ; dos puntos
+   print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[5],1)
+;   serial_hw_write(" ")
+   serial_hw_write(32)              ; espacio
+;   serial_hw_write(" ")
+   serial_hw_write(32)              ; espacio
+   ; valor analógico medido
+   serial_hw_write(arreglo_a_enviar[6]+48)
+   serial_hw_write(arreglo_a_enviar[7]+48)
+   serial_hw_write(arreglo_a_enviar[8]+48)
+   print_crlf(serial_hw_data)
+end procedure
+
+
+procedure leer_trama(word in direcc) is
+   var byte dire[2] at direcc
+   var byte i
+
+   ; Comenzar comunicación I2C
+   i2c_start()
+   ; Dirección i2c de la eeprom, modo escritura (para indicar la direcciones internas)
+   resul = i2c_transmit_byte(0xA0)
+   ; Byte alto dirección a leer
+   resul = resul & i2c_transmit_byte(dire[1])
+   ; Byte bajo dirección a leer
+   resul = resul & i2c_transmit_byte(dire[0])
+   ; Necesario restart del bus
+   i2c_restart()
+   ; Dirección i2c de la eeprom, modo lectura (de la direcciones interna)
+   resul = resul & i2c_transmit_byte(0xA1)
+   ; cargar arreglo con trama de datos (que tiene 9 bytes)
+   for 8 using i loop
+       arreglo_a_enviar[i] = i2c_receive_byte(true)
+   end loop
+   ; Problemas raros llevaron a esta solución mixta de carga del arreglo
+   arreglo_a_enviar[8] = i2c_receive_byte(false)
+   ; Terminar comunicación I2C
+   i2c_stop()
+
+end procedure
+
+procedure adquirir_promediar is
+
+   var byte cuenta = 0
+   var byte y = 0
+   var word val_mar
+   var byte indis[2] at val_mar
+   var word total = 0
+   var word promedio = 0
+   var byte cantidad
+   
+   for 5 using cuenta loop
+     ; cargar arreglo de n elementos (tamaño fijado por el tema RAM del 16F877)
+      for count(arreglo_mediciones) using y loop
+          adc_read_bytes(0, indis[1], indis[0])
+          arreglo_mediciones[y] =  val_mar      ; esta variable encapsula las otras dos
+          delay_10us(3)                         ; retardo suficiente para que adquiera bien (¿?)
+      end loop
+      ; calcular promedio, redondear hacia arriba
+      cantidad = count(arreglo_mediciones)
+      for cantidad using y loop
+          total = total + arreglo_mediciones[y]
+      end loop
+      promedio = (total/cantidad)+1   ; recordar que la división es entera
+      ; mostrar valor promedio
+;      bin2digits(digi2,digi1,dig0,cuenta)
+;      lcd_write_char(digi0+48)
+;
+;      lcd_write_char(" ")
+;      lcd_write_char("P")
+;      lcd_write_char("r")
+;      lcd_write_char("o")
+;      lcd_write_char("m")
+;      lcd_write_char(":")
+;      lcd_write_char(" ")
+;      word2digits(digi4,digi3,digi2,digi1,digi0,promedio)
+;      lcd_write_char(digi4+48)
+;      lcd_write_char(digi3+48)
+;      lcd_write_char(digi2+48)
+;      lcd_write_char(digi1+48)
+;      lcd_write_char(digi0+48)
+
+;      delay_100ms(30)
+;      lcd_clear_screen
+      total_a_grabar = total_a_grabar + promedio
+      promedio = 0
+      total = 0
+
+   end loop
+end procedure
+
+procedure decide_si_graba_envia is
+   ; si hubo cambios en la medición, grabar en eeprom
+   if (total_a_grabar < (valor_previo - 2)) | (total_a_grabar > (valor_previo + 2)) then
+      obtener_fecha_hora
+      valor1 = total_a_grabar        ; necesario por el código de escribir_trama_eeprom
+      escribir_trama_eeprom(0b1010_0000,direccion)
+      direccion = direccion + 9      ; incrementar la dirección
+      Data_EEprom_Write_word(0, direccion)  ; y guardar nuevo puntero de escritura
+      delay_1ms(4)
+      valor_previo = total_a_grabar
+      ;  PEDIR HABILITACIÓN DE ENVÍO A LA PC!
+      ; Preguntar si hay conexión con la PC, si sí, enviar trama recién grabada
+      ; Enviar caracter hacia la PC que testea si la PC está en condición
+      ; de recibir trama, si la respuesta es la correcta, entonces se envía
+      ; serial_hw_write("%")
+      serial_hw_write(37)               ; por ciento
+      ;if serial_hw_read(desde_pc) then
+      while serial_hw_read(desde_pc) == false loop
+            ; y si fue la correcta, enviar la última trama grabada
+            if desde_pc == "%" then
+               ; Se le resta 9 para que lea la última trama grabada.
+               leer_trama_eeprom_enviar(direccion - 9)
+            end if
+      end loop
+   end if
+end procedure
+
+procedure puesta_hora_rtc is
+        ; Se asume que el código del forever loop ha cargado los
+        ; valores correctos de fecha y hora ANTES de invocar a este proc.
+        ; Convertir los elementos del string recibido (en el arreglo)
+        ; en bytes para luego grabarlos en el RTC.
+        anio = dig2bin(0,arreglo_tiempo[0],arreglo_tiempo[1])
+        mes = dig2bin(0,arreglo_tiempo[2],arreglo_tiempo[3])
+        dia = dig2bin(0,arreglo_tiempo[4],arreglo_tiempo[5])
+        hora = dig2bin(0,arreglo_tiempo[6],arreglo_tiempo[7])
+        minuto = dig2bin(0,arreglo_tiempo[8],arreglo_tiempo[9])
+        segundo = dig2bin(0,arreglo_tiempo[10],arreglo_tiempo[11])
+        ; setear RTC con la fecha y hora recién recibidos y convertidos
+        escribir_rtc ( 0 , segundo )
+        escribir_rtc ( 1 , minuto )
+        escribir_rtc ( 2 , hora )
+        escribir_rtc ( 4 , dia )
+        escribir_rtc ( 5 , mes )
+        escribir_rtc ( 6 , anio )
+        writertc ( 7 , 16 )
+end procedure
+
+
+procedure enviar_cada_8_horas is
+; bloque que controla la hora, si son las 08:00, o las 16:00, o las 00:00
+; envía las tramas que coincidan con dicha fecha, con número de orden consecutivo y NO REPETIDO
+   obtener_fecha_hora
+   if hora == 8 & minuto == 0 & segundo == 0 then           ; <--- en la realidad
+      while arreglo_a_enviar[1] != 255 loop
+         leer_trama(dir)
+         dir = dir + 9          ; se suma 9 porque ese es el tamaño de trama
+         ; arrreglo[0] contiene el año, arreglo[1] el mes y arreglo[2] el día
+            if anio == arreglo_a_enviar[0] then
+               if mes == arreglo_a_enviar[1] then
+                  if dia == arreglo_a_enviar[2] then
+                     leer_trama_eeprom_enviar(dir)
+                     print_crlf(serial_hw_data)
+                     num_orden = num_orden + 1
+                     Data_EEprom_Write_word(254, num_orden)
+                     ;delay_100ms(10)          ; para que mande una sóla vez la trama
+                  end if
+               end if
+            end if
+      end loop
+   elsif hora == 16 & minuto == 0 & segundo == 0 then
+      while arreglo_a_enviar[1] != 255 loop
+         leer_trama(dir)
+         dir = dir + 9          ; se suma 9 porque ese es el tamaño de trama
+         ; arrreglo[0] contiene el año, arreglo[1] el mes y arreglo[2] el día
+            if anio == arreglo_a_enviar[0] then
+               if mes == arreglo_a_enviar[1] then
+                  if dia == arreglo_a_enviar[2] then
+                     leer_trama_eeprom_enviar(dir)
+                     print_crlf(serial_hw_data)
+                     num_orden = num_orden + 1
+                     Data_EEprom_Write_word(254, num_orden)
+                     ;delay_100ms(10)          ; para que mande una sóla vez la trama
+                  end if
+               end if
+            end if
+      end loop
+   elsif hora == 0 & minuto == 0 & segundo == 0 then
+      while arreglo_a_enviar[1] != 255 loop
+         leer_trama(dir)
+         dir = dir + 9          ; se suma 9 porque ese es el tamaño de trama
+         ; arrreglo[0] contiene el año, arreglo[1] el mes y arreglo[2] el día
+            if anio == arreglo_a_enviar[0] then
+               if mes == arreglo_a_enviar[1] then
+                  if dia == arreglo_a_enviar[2] then
+                     leer_trama_eeprom_enviar(dir)
+                     print_crlf(serial_hw_data)
+                     num_orden = num_orden + 1
+                     Data_EEprom_Write_word(254, num_orden)
+                     ;delay_100ms(10)          ; para que mande una sóla vez la trama
+                  end if
+               end if
+            end if
+      end loop
+   end if
+
+end procedure
+
+procedure enviar_trama_serialmente is
+   while arreglo_a_enviar[0] == 11 loop
+      ; comparar año, mes, día
+      if anio == arreglo_a_enviar[0] then
+         if mes == arreglo_a_enviar[1] then
+            if dia == arreglo_a_enviar[2] then
+               ; enviar trama formateada serialmente a PC
+               ; número de orden
+               word2digits(digi4,digi3,digi2,digi1,digi0,num_orden)
+               serial_hw_write(digi3+48)
+               serial_hw_write(digi2+48)
+               serial_hw_write(digi1+48)
+               serial_hw_write(digi0+48)
+               ; serial_hw_write(" ")
+                serial_hw_write(32)              ; espacio
+               ; fecha
+               print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[0],1)
+               ; serial_hw_write("/")
+               serial_hw_write(47)               ; barra inclinada
+               print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[1],1)
+               ; serial_hw_write("/")
+               serial_hw_write(47)               ; barra inclinada
+               print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[2],1)
+               ; serial_hw_write(" ")
+               serial_hw_write(32)              ; espacio
+               ; hora
+               print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[3],1)
+               ; serial_hw_write(":")
+               serial_hw_write(58)               ; dos puntos
+               print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[4],1)
+               ; serial_hw_write(":")
+               serial_hw_write(58)               ; dos puntos
+               print_byte_dec_2digs(serial_hw_data, arreglo_a_enviar[5],1)
+               ; serial_hw_write(" ")
+               serial_hw_write(32)               ; espacio
+               ; serial_hw_write(" ")
+               serial_hw_write(32)               ; espacio
+               ; valor analógico medido
+               serial_hw_write(arreglo_a_enviar[6]+48)
+               serial_hw_write(arreglo_a_enviar[7]+48)
+               serial_hw_write(arreglo_a_enviar[8]+48)
+               num_orden = num_orden + 1
+               Data_EEprom_Write_word(254, num_orden)
+               print_crlf(serial_hw_data)
+               dir = dir + 9
+               leer_trama(dir)
+            end if
+         end if
+      end if
+   end loop
+end procedure
+
+procedure cargar_fecha is
+      anio = ((arreglo_tiempo[0])-48)*10 + (arreglo_tiempo[1]-48)
+      mes = ((arreglo_tiempo[2])-48)*10 + (arreglo_tiempo[3]-48)
+      dia = ((arreglo_tiempo[4])-48)*10 + (arreglo_tiempo[5]-48)
+      hora = ((arreglo_tiempo[6])-48)*10 + (arreglo_tiempo[7]-48)
+      minuto = ((arreglo_tiempo[8])-48)*10 + (arreglo_tiempo[9]-48)
+      segundo = ((arreglo_tiempo[10])-48)*10 + (arreglo_tiempo[11]-48)
+end procedure
+
+procedure lector_esta_conectado is
+   if lector_conectado then
+      ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+      ; de interrupciones y otros efectos extraños.
+      ADC_off
+      ; asegurarse que los pines del bus I2C estén "desconectados"
+      pin_c3_direction = input
+      pin_c4_direction = input
+      ; un pitido cortito como señal de que se va a apagar el PIC
+      testigo = on
+      delay_100ms( 2 )              ; 0,2 segs de pitido
+      testigo = off
+      delay_100ms( 2 )
+      ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+      asm clrwdt
+      ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+      asm sleep
+   end if
+end procedure
+
+procedure leer_minutos is
+   leer_rtc(1,digi1,digi0)
+   digi1 = digi1 * 10
+   minuto = digi1 + digi0
+end procedure
+
+procedure leer_segundos is
+   leer_rtc(0,digi1,digi0)
+   digi1 = digi1 * 10
+   segundo = digi1 + digi0
+end procedure
+
+
+; =============================== PINCIPAL ======================================
+
+; ------------------------------------------------------------------------------
+; Verificar si se conectó el lector de eeproms y si sí, detener al PIC
+lector_esta_conectado
+; ------------------------------------------------------------------------------
+testigo = off
+testigo = on
+delay_100ms(15)
+testigo = off
+
+; para que las lecturas no sean sobreescritas (entran aprox 3640 tramas por eeprom)
+direccion = Data_EEprom_word(0)
+
+; limpiar LCD y mostrar fecha y hora (para chequear el estado del RTC esencialmente)
+lcd_clear_screen()
+const byte str1[] = "OK!"
+
+const byte fecha[]= "Fecha: "
+const byte lahora[]= "Hora: "
+
+print_string(lcd, str1)
+delay_100ms(15)
+lcd_clear_screen()
+obtener_fecha_hora
+print_string(lcd, fecha)
+print_byte_dec_2digs(lcd,anio,1)
+lcd_write_char("/")
+print_byte_dec_2digs(lcd,mes,1)
+lcd_write_char("/")
+print_byte_dec_2digs(lcd,dia,1)
+; bajar a 2da línea
+lcd_cursor_position(1,0)
+print_string(lcd,lahora)
+print_byte_dec_2digs(lcd,hora,1)
+lcd_write_char(":")
+print_byte_dec_2digs(lcd,minuto,1)
+lcd_write_char(":")
+print_byte_dec_2digs(lcd,segundo,1)
+; 2,5 segs
+delay_100ms(25)
+; limpiar y seguir con el funcionamiento normal
+lcd_clear_screen()
+
+; ------------------------------------------------------------------------------
+
+var byte temporal = 0
+var bit bandera = false
+
+; cargar variable minuto_inicial para inicializarla y cronizar los intervalos
+;leer_minutos
+;minuto_inicial = minuto
+
+; cargar variable segundo_inicial para inicializarla y cronizar los intervalos
+leer_segundos
+segundo_inicial = segundo
+
+
+forever loop
+
+    ; Bloque de código que se utilizaba para medir/evaluar cada minuto, se comenta y
+    ; se pasa a usar el cada segundo, escrito más abajo.
+
+    ; ------------------------------------------------------------------------------------
+; Este bloque comentado era la rutina de ADQUISICIÓN Y ENVÍO cada MINUTO.
+;   ; leer minutos del RTC
+;   leer_minutos
+;   ; si ha pasado el intervalo preestablecido lanzar el proceso de adquisición, grabado y envío a PC
+;   minuto_final = minuto_inicial + intervalo
+;
+;   if (minuto == minuto_final) then
+;      ; para que sólo se envíe UNA TRAMA Y SÓLO UNA en el intervalo especificado
+;      if bandera_tx then
+;         ; enviar señal de ocupado
+;         ;serial_hw_write("$")
+;         serial_hw_write(36)
+;
+;         adquirir_promediar
+;         ; promediado de las 5 ráfagas y redondeo hacia arriba
+;         total_a_grabar = (total_a_grabar/5)+1
+;         decide_si_graba_envia
+;
+;         ; enviar señal de desocupado
+;         ;serial_hw_write("^")
+;         serial_hw_write(94)
+;         ; actualizar variable de cronizado
+;         minuto_inicial = minuto_inicial + intervalo
+;         bandera_tx = false
+;      end if
+;   else
+;      bandera_tx = true
+;   end if
+   ; ------------------------------------------------------------------------------------
+   
+   
+   ; ------------------------------------------------------------------------------------
+   ; Bloque de código que se utiliza para medir y evaluar si grabar/enviar cada segundo,
+   ; en cada segundo el PIC procede a hacer 5 ráfagas de 25 mediciones (valor que surge
+   ; de las limitaciones de la RAM disponible en el 16F877), las promedia, compara el
+   ; resultado con un valor previamente adquirido y si hay cambios en más menos una tolerancia
+   ; dada, procede a grabar los datos en EEPROM, y luego pide comunicación con la PC, si recibe
+   ; el permiso da formato a la trama (en ASCII) y la envía serialmente hacia la misma dónde el
+   ; soft VB la recibe y envía a archivo.
+
+   ; Leer segundos del RTC
+   leer_segundos
+   ; Si ha pasado el intervalo preestablecido (1) lanzar el proceso de adquisición, grabado y envío a PC
+   segundo_final = segundo_inicial + intervalo
+
+   if (segundo == segundo_final) then
+      ; para que sólo se envíe UNA TRAMA Y SÓLO UNA en el intervalo especificado
+      if bandera_tx then
+         ; enviar señal de ocupado
+         ;serial_hw_write("$")
+         serial_hw_write(36)
+
+         adquirir_promediar
+         ; promediado de las 5 ráfagas y redondeo hacia arriba
+         total_a_grabar = (total_a_grabar/5)+1
+         decide_si_graba_envia
+
+         ; enviar señal de desocupado
+         ;serial_hw_write("^")
+         serial_hw_write(94)
+         ; actualizar variable de cronizado
+         segundo_inicial = segundo_inicial + intervalo
+         bandera_tx = false
+      end if
+   else
+      bandera_tx = true
+   end if
+   ; ------------------------------------------------------------------------------------
+   
+   ; ------------------------------------------------------------------------------------
+   ; Sección de comunicaciones serie DESDE LA PC
+   if serial_hw_read(desde_pc) then
+      ; Puesta en hora del RTC de la AME desde la PC
+      if desde_pc == "t" then
+         ; recibir string con fecha y hora desde la PC
+         ; de la forma: YYMMDDHHMMSS, y terminada con la letra "z"
+         while desde_pc != "z" loop
+            if Serial_HW_read(desde_pc) then
+               if desde_pc != "z" then
+                  arreglo_tiempo[y] = (desde_pc - 48)
+                  y = y + 1
+               end if
+            end if
+         end loop
+         ; Con el arreglo recién cargado, poner en hora RTC.
+         puesta_hora_rtc
+
+      ; El siguiente bloque recibe una fecha/hora desde la PC, compara y devuelve trama q coincide...
+      ; si se recibe una x lo que sigue es fecha/hora de la trama a leer
+      elsif desde_pc == "x" then
+         cuenta = 0
+         ; El string de fecha/hora termina en un caracter "p"
+         while desde_pc != "p" loop
+            if desde_pc == "p" then
+               exit loop
+            end if
+            ; Cargar arreglo fecha/hora
+            if serial_hw_read(desde_pc) then
+               arreglo_tiempo[cuenta] = desde_pc
+               cuenta = cuenta + 1
+            end if
+         end loop
+
+         ; leer trama, comparar con fecha pedida inicio, enviar
+         cargar_fecha
+         ; Arrancamos de 27 porque en esta posición está la primera trama sana de un grupo de
+         ; 4 tramas con fechas bien definidas, en el definitivo debería arrancar en 0
+         dir = 27
+         leer_trama(dir)
+         enviar_trama_serialmente
+         ; serial_hw_write("@")
+         serial_hw_write(64)               ; arroba
+      elsif desde_pc == "1" then
+          serial_hw_write("o")
+          serial_hw_write("k")
+      end if
+   end if
+
+end loop
+
