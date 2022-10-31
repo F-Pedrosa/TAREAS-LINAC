@@ -1,0 +1,16 @@
+Línea 46: la clase MSComDlg.CommonDialog del control CommonDialog1 no era una clase de control cargada.
+Línea 97: la clase SCommLib.SComm del control SComm1 no era una clase de control cargada.
+Línea 49: el nombre de la propiedad _ExtentX de CommonDialog1 no es válido.
+Línea 50: el nombre de la propiedad _ExtentY de CommonDialog1 no es válido.
+Línea 51: el nombre de la propiedad _Version de CommonDialog1 no es válido.
+Línea 100: el nombre de la propiedad _ExtentX de SComm1 no es válido.
+Línea 101: el nombre de la propiedad _ExtentY de SComm1 no es válido.
+Línea 102: el nombre de la propiedad CommPort de SComm1 no es válido.
+Línea 103: el nombre de la propiedad DTREnable de SComm1 no es válido.
+Línea 104: el nombre de la propiedad InBufferSize de SComm1 no es válido.
+Línea 105: el nombre de la propiedad OutBufferSize de SComm1 no es válido.
+Línea 106: el nombre de la propiedad RThreshold de SComm1 no es válido.
+Línea 107: el nombre de la propiedad RTSEnable de SComm1 no es válido.
+Línea 108: el nombre de la propiedad Settings de SComm1 no es válido.
+Línea 109: el nombre de la propiedad CommName de SComm1 no es válido.
+Línea 110: el nombre de la propiedad OverlappedIO de SComm1 no es válido.
