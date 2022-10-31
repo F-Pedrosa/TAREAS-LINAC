@@ -1,0 +1,166 @@
+;Firm para prueba comunicación WiFi entre módulo 8266+PIC y módulo 8266 a PC
+
+include 16f628a
+
+pragma target clock 20_000_000      ; xtal
+
+pragma target OSC      HS
+pragma target WDT      DISABLED     ; sin watchdog
+pragma target BROWNOUT DISABLED     ; sin brownout reset
+pragma target LVP      DISABLED     ; sin low voltage programming
+pragma target MCLR     INTERNAL     ; pin A5 como entrada digital
+
+enable_digital_io()
+include delay
+
+include print
+include strings
+
+; para comunicarse con el módulo 8266
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+
+; -----------------------------------------------------------
+; Seteos de pines para el LCD
+const byte LCD_ROWS   = 2     ; 2 líneas
+const byte LCD_CHARS  = 16    ; 16 chars por línea
+alias  lcd_rs  is  pin_a4     ; cmd/data select
+alias  lcd_en  is  pin_b0     ; enable
+
+alias  lcd_d4       is  pin_a0  ; lcd databit d4
+alias  lcd_d5       is  pin_a1  ; lcd databit d5
+alias  lcd_d6       is  pin_a2  ; lcd databit d6
+alias  lcd_d7       is  pin_a3  ; lcd databit d7
+
+pin_a0_direction = output
+pin_a4_direction = output
+pin_a3_direction = output
+pin_a2_direction = output
+pin_a1_direction = output
+pin_b0_direction = output
+include lcd_hd44780_4
+lcd_init()
+
+
+const byte mensaje_ok[] = "OK!"
+
+; COMANDOS AT
+const byte sin_eco[] = "ATE0\r\n"                 ; sin eco de comandos
+const byte desconectar_ap[] = "AT+CWQAP\r\n"      ; desconectarse de cualquier AP
+const byte setear_modo[] = "AT+CWMODE=1\r\n"      ; setear modo cliente (no AP)
+const byte setear_mux[] = "AT+CIPMUX=1\r\n"       ; una sola conexión
+const byte conectar_ap[]="AT+CWJAP="              ; conectarse al AP dado por los strings q siguen
+const byte nombre_ap[] = "AI-THINKER_F469E4"
+const byte iniciar_comunicacion[] = "AT+CIPSTART=4,"
+const byte tcp[] = "TCP"
+const byte ip_servidor[] = "192.168.4.1"
+const byte puerto_servidor[] = "333"
+const byte enviar_bytes[] = "AT+CIPSEND="
+const byte mensaje[] = "Me cago en la mierda y en los strings de JAL..."
+
+
+alias led_rojo is pin_b7
+alias led_amarillo is pin_b6
+pin_b7_direction = output
+pin_b6_direction = output
+
+alias entrada is pin_b3
+pin_b3_direction = input
+var byte dato = 0
+var byte longitud_mensaje = 0
+var byte digi0
+var byte digi1
+var byte digi2
+
+;procedure seteos_iniciales is
+
+;end procedure
+
+
+
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+; ===================================================================================================================
+
+led_rojo = on
+led_amarillo = on
+delay_100ms(10)
+led_rojo = off
+led_amarillo = off
+
+longitud_mensaje = string_length(mensaje)
+
+lcd_clear_screen
+print_string(lcd,mensaje_ok)
+lcd_cursor_position(1,0)
+
+; ---------------------------------------------------------------------------------
+delay_100ms(10)   ; esperamos 1 segs para que se inicie correctamente el módulo 8266
+print_string(serial_hw_data,desconectar_ap)
+delay_100ms(10)   ; para que termine cualquier conexión previa
+
+
+print_string(serial_hw_data,setear_modo)
+delay_100ms(10)
+print_string(serial_hw_data,conectar_ap)
+serial_hw_data = 34   ; mandamos una comilla
+print_string(serial_hw_data,nombre_ap)
+serial_hw_data = 34   ; mandamos una comilla
+serial_hw_data = ","  ; mandamos una coma
+serial_hw_data = 34   ; mandamos una comilla
+serial_hw_data = 34   ; mandamos una comilla
+print_crlf(serial_hw_data)
+delay_100ms(40)           ; espera larga por cuestiones del módulo
+print_string(serial_hw_data,setear_mux)
+delay_100ms(10)
+
+print_string(serial_hw_data,iniciar_comunicacion)
+serial_hw_data = 34
+print_string(serial_hw_data,tcp)
+serial_hw_data = 34
+serial_hw_data = ","
+serial_hw_data = 34   ; mandamos una comilla
+print_string(serial_hw_data,ip_servidor)
+serial_hw_data = 34   ; mandamos una comilla
+serial_hw_data = ","
+print_string(serial_hw_data,puerto_servidor)
+print_crlf(serial_hw_data)
+delay_100ms(40)
+
+; ---------------------------------------------------------------------------------
+
+
+
+forever loop
+   if entrada == on then
+      print_string(serial_hw_data,enviar_bytes)
+      serial_hw_data = "4"
+      serial_hw_data = ","
+      bin2digits(digi2,digi1,digi0,longitud_mensaje)
+      if digi2 != 0 then
+         serial_hw_data = digi2 + 48                ; van como caracteres ASCII
+      end if
+      if digi1 != 0 then
+         serial_hw_data = digi1 + 48                ; van como caracteres ASCII
+      end if
+      if digi0 != 0 then
+         serial_hw_data = digi0 + 48                ; van como caracteres ASCII
+      end if
+      print_crlf(serial_hw_data)
+      delay_100ms(5)
+      print_string(serial_hw_data,mensaje)
+   end if
+end loop
+

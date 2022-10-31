@@ -1,0 +1,208 @@
+;Firm para prueba comunicación WiFi entre módulo 8266+PIC y celular android con servidor FTP
+
+include 16f628a
+
+pragma target clock 20_000_000      ; xtal
+
+pragma target OSC      HS
+pragma target WDT      DISABLED     ; sin watchdog
+pragma target BROWNOUT DISABLED     ; sin brownout reset
+pragma target LVP      DISABLED     ; sin low voltage programming
+pragma target MCLR     INTERNAL     ; pin A5 como entrada digital
+
+enable_digital_io()
+include delay
+
+include print
+include strings
+
+; para comunicarse con el módulo 8266
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+
+; -----------------------------------------------------------
+; Seteos de pines para el LCD
+const byte LCD_ROWS   = 2     ; 2 líneas
+const byte LCD_CHARS  = 16    ; 16 chars por línea
+alias  lcd_rs  is  pin_a4     ; cmd/data select
+alias  lcd_en  is  pin_b0     ; enable
+
+alias  lcd_d4       is  pin_a0  ; lcd databit d4
+alias  lcd_d5       is  pin_a1  ; lcd databit d5
+alias  lcd_d6       is  pin_a2  ; lcd databit d6
+alias  lcd_d7       is  pin_a3  ; lcd databit d7
+
+pin_a0_direction = output
+pin_a4_direction = output
+pin_a3_direction = output
+pin_a2_direction = output
+pin_a1_direction = output
+pin_b0_direction = output
+include lcd_hd44780_4
+lcd_init()
+
+; REFERENCIA COMANDOS
+      ;AT+CWMODE=3
+      ;AT+CWDHCP=2,1
+      ;AT+CIPMUX=1
+      ;AT+CIPSTART=4,"TCP","xx.xx.xx.xx",puerto
+      ;AT+CIPSEND=4,9
+      ;   > USER user
+      ;AT+CIPSEND=4,9
+      ;  > PASS pass
+      ;AT+CIPSERVER=1,1027
+      ;AT+CIPSEND=4,20
+      ;  > PORT xx,xx,xx,xx,4,3
+      ;AT+CIPSEND=4,13
+      ;  > STOR test.txt
+      ;AT+CIPSEND=0,4
+      ;  > abcd
+      ;AT+CIPCLOSE=0
+      ;AT+CIPCLOSE=4
+
+
+const byte mensaje_ok[] = "OK!"
+
+; COMANDOS AT para el módulo, que permiten comunicarse con el server FTP
+const byte reset[] = "AT+RST\r\n"      ; setear modo cliente (no AP)
+const byte setear_modo[] = "AT+CWMODE=3\r\n"      ; setear modo cliente (no AP)
+const byte setear_dhcp[] = "AT+CWDHCP=2,1\r\n"    ; activar servidor DHCP interno
+const byte setear_mux[] = "AT+CIPMUX=1\r\n"       ; multiconexión
+
+const byte iniciar_comunicacion[] = "AT+CIPSTART=4,"
+const byte tcp[] = "TCP"
+const byte ip_servidor[] = "192.168.4.2"
+const byte puerto_servidor[] = ",9090\r\n"
+
+const byte enviar_USER_PASS[] = "AT+CIPSEND=4,11\r\n"
+const byte usuario[] = "USER user\r\n"
+const byte contrasenia[] = "PASS pass\r\n"
+
+const byte puerto_datos_ftp[] = "AT+CIPSERVER=1,1027\r\n"    ; activar el puerto de datos local de la conexión FTP
+
+const byte enviar_PORT[] = "AT+CIPSEND=4,22\r\n"
+const byte PORT[]="PORT 192,168,4,1,4,3\r\n\r\n"
+
+const byte enviar_LIST[] = "AT+CIPSEND=4,4\r\n"
+const byte comando_listar[] = "LIST\r\n\r\n"
+
+const byte enviar_nombre_archivo[] = "AT+CIPSEND=4,15\r\n"
+const byte comando_nombre[]= "STOR 0001.txt\r\n\r\n"
+const byte enviar_datos[] = "AT+CIPSEND=0,4\r\n"
+const byte datos_dummy[] = "abcd\r\n\r\n"
+
+const byte cierra_conexion_datos[] = "AT+CIPCLOSE=0\r\n"
+const byte cierra_conexion_comandos[] = "AT+CIPCLOSE=4\r\n"
+
+
+alias led_rojo is pin_b7
+alias led_amarillo is pin_b6
+pin_b7_direction = output
+pin_b6_direction = output
+
+alias entrada is pin_b3
+pin_b3_direction = input
+var byte dato = 0
+var byte longitud_mensaje = 0
+var byte digi0
+var byte digi1
+var byte digi2
+
+var byte contador = 1
+
+
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+; ===================================================================================================================
+
+led_rojo = on
+led_amarillo = on
+delay_100ms(10)
+led_rojo = off
+led_amarillo = off
+
+;longitud_mensaje = string_length(mensaje)
+
+lcd_clear_screen
+print_string(lcd,mensaje_ok)
+lcd_cursor_position(1,0)
+
+; ---------------------------------------------------------------------------------
+; Seteos iniciales
+delay_100ms(20)   ; esperamos 2 segs para que se inicie correctamente el módulo 8266
+
+;print_string(serial_hw_data,reset)
+;delay_100ms(30)
+
+print_string(serial_hw_data,setear_modo)
+delay_100ms(10)   ; acá debería volver un OK
+print_string(serial_hw_data,setear_dhcp)
+delay_100ms(10)   ; acá debería volver un OK
+print_string(serial_hw_data,setear_mux)
+delay_100ms(10)   ; acá debería volver un OK
+; ---------------------------------------------------------------------------------
+
+forever loop
+
+   if entrada == on then
+             print_string(serial_hw_data,puerto_datos_ftp)     ; activar puerto de datos local
+             delay_100ms(5)
+
+             print_string(serial_hw_data,iniciar_comunicacion)
+             serial_hw_data = 34   ; mandamos una comilla
+             print_string(serial_hw_data,tcp)
+             serial_hw_data = 34   ; mandamos una comilla
+             serial_hw_data = ","
+             serial_hw_data = 34   ; mandamos una comilla
+             print_string(serial_hw_data,ip_servidor)
+             serial_hw_data = 34   ; mandamos una comilla
+             print_string(serial_hw_data,puerto_servidor)
+             delay_100ms(30)           ; espera más larga para que se establezca el enlace TCP con el servidor FTP
+
+             print_string(serial_hw_data,enviar_USER_PASS)         ; enviar comando de nombre de usuario o contraseña al servidor
+             delay_100ms(5)
+             print_string(serial_hw_data,usuario)         ; enviar EL nombre de usuario al servidor
+             delay_100ms(5)
+
+             print_string(serial_hw_data,enviar_USER_PASS)     ; enviar comando de nombre de usuario o contraseña al servidor
+             delay_100ms(5)
+             print_string(serial_hw_data,contrasenia)     ; enviar LA contraseña de usuario al servidor
+             delay_100ms(5)
+
+             print_string(serial_hw_data,enviar_PORT)          ; indica que va a salir el comando de PORT
+             delay_100ms(5)
+             print_string(serial_hw_data,PORT)                 ; y acá va el comando, hacia el servidor remoto
+             delay_100ms(30)
+
+
+             print_string(serial_hw_data,enviar_nombre_archivo)
+             delay_100ms(10)
+             print_string(serial_hw_data,comando_nombre)
+             delay_100ms(10)
+
+             print_string(serial_hw_data,enviar_datos)
+             delay_100ms(5)
+             print_string(serial_hw_data,datos_dummy)
+             delay_100ms(10)
+
+             print_string(serial_hw_data,cierra_conexion_datos)     ; en este punto el servidor remoto graba los datos y cierra el archivo
+             delay_100ms(5)
+
+             print_string(serial_hw_data,cierra_conexion_comandos)  ; terminar todo el proceso.
+             delay_100ms(5)
+   end if
+
+end loop
+

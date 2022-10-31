@@ -1,0 +1,116 @@
+; Firmware que lee archivo desde una SD y lo envía via ESP8266 a un servidor FTP en un cel Android
+
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+WDTCON_SWDTEN = OFF                   ; disable WDT
+OSCCON_SCS = 0                        ; select primary oscillator
+OSCTUNE_PLLEN = FALSE                 ; no PLL
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+_usec_delay(100_000) -- wait for power to settle
+
+include delay
+
+; para comunicarse con el módulo 8266
+const serial_hw_baudrate  = 115200
+include serial_hardware
+serial_hw_init()
+; necesario para manejo de strings
+include print
+
+; ---------------------------------------------------------------------------------------------------------------
+var byte cadena[20] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
+var byte dato = 0
+var bit terminado = false
+var byte i = 0
+var byte x = 0
+
+alias led_rojo is pin_b7
+pin_b7_direction = output
+
+; COMANDOS AT para el módulo, que permiten comunicarse con el server FTP
+; Seteos de base
+const byte reset[] = "AT+RST\r\n"                 ; reset del módulo
+const byte setear_modo[] = "AT+CWMODE=3\r\n"      ; setear modo mixto, AP y cliente
+const byte setear_dhcp[] = "AT+CWDHCP=2,1\r\n"    ; activar servidor DHCP interno
+const byte setear_mux[] = "AT+CIPMUX=1\r\n"       ; multiconexión
+; abre un puerto local
+const byte puerto_local[] = "AT+CIPSERVER=1,9999\r\n"    ; activar el puerto de datos local de la conexión FTP
+
+; ===============================================================================================================
+
+led_rojo = on
+delay_100ms(10)
+led_rojo = off
+
+; ---------------------------------------------
+; Seteos iniciales del módulo WiFi
+delay_100ms(10)   ; esperamos 1 seg para que se termine de iniciar correctamente el módulo 8266
+print_string(serial_hw_data,setear_modo)
+delay_100ms(5)   ; acá debería volver un OK
+print_string(serial_hw_data,setear_dhcp)
+delay_100ms(5)   ; acá debería volver un OK
+print_string(serial_hw_data,setear_mux)
+delay_100ms(5)   ; acá debería volver un OK
+print_string(serial_hw_data,puerto_local)
+delay_100ms(5)   ; acá debería volver un OK
+; --------------------------------------------
+
+forever loop
+  ; si llegan bytes serialmente desde el ESP8266, evaluarlos
+  if serial_hw_read(dato) then
+     if dato == 10 | dato == 13 then          ; si llega CR ó LF terminó el string
+        terminado = true
+        i = 0
+     else                                     ; si no, agregar caracter al string
+        cadena[i] = dato
+        i = i + 1
+        if i == 19 then                       ; si son más de 19 terminar para que no haya overflow
+           i = 0
+           for 20 using x loop                ; limpiar string
+               cadena[x] = 0
+           end loop
+        end if
+     end if
+  end if
+
+
+  ; Los primeros 9 caracteres del string son agregados del módulo
+  ; en realidad, a partir del signo ":", viene los verdaderos caracteres
+  ; enviados desde la otra punta de la conexión (el celular en estas pruebas).
+  ; Convendría mejorar este "parseador" para buscar el ":" y desde allí extraer
+  ; el mensaje real que llega. O separar el "+IPD 0,cantidad" ...
+
+  if terminado == true then
+     terminado = false
+     if cadena[9] == "O" then                 ; si el string tiene ON, encender
+        if cadena[10] == "N" then
+           led_rojo= on
+        elsif cadena[10] == "F" then          ; si el string tiene OF, apagar
+           led_rojo= off
+        end if
+     end if
+     for 20 using x loop                      ; limpiar string
+         cadena[x] = 0
+     end loop
+   end if
+
+
+end loop
+
+
+
+
+
+
