@@ -1,0 +1,78 @@
+; Rutina que cuenta tiempos entre dos activaciones sucesivas de 2 pines de
+; entrada y según sea el valor de ese tiempo hará diferentes cosas, representado
+; como distintas activaciones de pines de salida.
+
+; Los pines de entrada pasan de 1 a 0 al activarse porque la electrónica de entrada
+; hace una inversión (esa electrónica ES necesaria como protección del PIC).
+
+; Todas las definiciones del hardware están en jal_v2_16F877, que es una librería
+; personalizada ubicada en el mismo directorio del jal principal.
+include jal_v2_16F877
+
+; Verificar que la asignación de pines sea correcta según el hardware de prueba.
+; Seteado de dirección de los pines de entrada/salida
+; pin #2
+pin_a0_direction = input
+; pin #3
+pin_a1_direction = input
+; pin #21
+pin_d2_direction = output
+
+; Poner alias a los pines que se van a utilizar, para facilitar el uso
+var bit entrada1 is pin_a0
+var bit entrada2 is pin_a1
+var bit salida1 is pin_d2
+
+; Variables a usar, la condición de inicio era que el intervalo a medir
+; estaría en el orden de 60 segundos.
+var dword acumulador = 0
+var dword contador1 = 0
+var dword contador2 = 0
+var dword diferencia = 0
+
+;*****************************************************************************
+; Definir valor de referencia (en segundos*10), el valor 100 ES SÓLO UN EJEMPLO.
+; el contador interno cuenta en DÉCIMAS DE SEGUNDO!!!!!!!
+const dword retardo_entrada2 = 50
+;******************************************************************************
+
+; El pin entrada1 es el que al cambiar de estado desde 1 a 0 inicia el conteo.
+; El pin entrada2, distinto del pin entrada1, es el que al cambiar de estado
+; desde 1 a 0 detiene el conteo de tiempo.
+
+; ============================ PRINCIPAL =============================
+
+; Asegurarse que la salida arranque baja
+salida1 = 0
+
+; lazo infinito
+forever loop
+   ; Si el pin entrada1 pasa a de 1 a 0
+   if entrada1 == 0 then
+      contador1 = acumulador
+   end if
+
+   ; Si el pin entrada1 pasa a de 1 a 0
+   if entrada2 == 0 then
+      contador2 = acumulador
+      diferencia = contador2 - contador1
+   end if
+
+
+   ; salida1 es el pin que es actuado según el resultado de la comparación
+   ; entre la diferencia de tiempos y una fija llamada "retardo_entrada2".
+   if diferencia > retardo_entrada2 then
+      ; si el tiempo medido es mayor o igual que un valor de referencia
+      ; activar salida1
+      salida1 = on
+   else
+      ; si no lo es, asegurarse de que esté desactivada
+      salida1 = off
+   end if
+   ; contar tiempo en saltos de 100 ms, un valor elegido porque no es
+   ; ni muy pequeño (acumulador se haría innecesariamente grande) ni,
+   ; en principio, demasiado consumidor de tiempo de micro.
+   delay_100ms( 1 )
+   ; incrementar acumulador
+   acumulador = acumulador + 1
+end loop

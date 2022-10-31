@@ -1,0 +1,119 @@
+; Rutina que guarda en la eeprom interna un byte que indica el origen de la
+; señal de entrada (pin) y 4 bytes de conteo de tiempo, más 1 byte de la salida
+; y sus 4 bytes de conteo de tiempo al momento de la desactivación. POR CADA SALIDA!
+
+; Todas las definiciones del hardware están en jal_v2_16F877, que es una librería
+; personalizada ubicada en el mismo directorio del jal principal.
+include jal_v2_16F877
+
+; Verificar que la asignación de pines sea correcta según el hardware de prueba.
+; Seteado de dirección de los pines de entrada/salida
+; pin #2
+pin_a0_direction = input
+
+; ahora las salidas
+; pin #21
+pin_d2_direction = output
+; pin #22
+pin_d3_direction = output
+; pin #24
+pin_c5_direction = output
+; pin #25
+pin_c6_direction = output
+
+; Nombres más descriptivos para los pines de I/O
+var bit entrada1 is pin_a0
+var bit salida1 is pin_d2
+var bit salida2 is pin_d3
+var bit salida3 is pin_c5
+var bit salida4 is pin_c5
+
+; variable para llevar la cuenta del tiempo transcurrido desde el arranque
+var word contador = 0
+; variable para tomar la cuenta hasta la activación de la entrada 1
+var word contador_relativo = 0
+
+;**************************************************************************
+;            ACA SE DECLARAN LOS RETARDOS ASIGNADOS A CADA SALIDA
+;            ESTÁN EXPRESADOS EN DÉCIMAS DE SEGUNDO.
+const word retardo_salida1 = 20
+const word retardo_salida2 = 40
+const word retardo_salida3 = 60
+const word retardo_salida4 = 80
+;***************************************************************************
+
+; asegurarse que las salidas arranquen bajas
+salida1 = 0
+salida2 = 0
+salida3 = 0
+salida4 = 0
+
+; La estructura a guardarse en la eeprom interna del micro será:
+; 1 byte indicando la entrada que se activó, más 4 bytes que contendrán
+; el valor del acumulador (que se incrementa cada décima de segundo).
+; Los primeros 5 bytes de la eeprom son para la entrada1, los siguientes 5
+; para la entrada2 y así sucesivamente...
+forever loop
+   ; Si el pin de entrada está en 0 (o sea, pasa de 5 a 0 V), porque la electró-
+   ; nica de adaptación de entrada hace una inversión de polaridad.
+   if entrada1 == 0 then
+      ; guardar en eeprom interna el byte que identifica a la entrada
+      ; y el valor del acumulador.
+      Data_EEprom_Write(0, 1)
+      Data_EEprom_Write_dword(1, contador)
+      contador_relativo = contador
+      ; Levantar (poner en 5 Vdc) todos los pines de salida
+      salida1 = 1
+      salida2 = 1
+      salida3 = 1
+   end if
+
+   ; Los valores de contador (que divididos en 10 equivaldrían a segundos) están
+   ; elegidos absolutamente al azar. Si se cambiara (achicara) el valor del delay
+   ; usado en el bucle while (y quizás convendría hacerlo) habría que cambiar
+   ; los límites (aumentando) de la variable contador, en cada caso.
+
+   ; TODOS LOS VALORES DE TIEMPO DE CADA UNO DE LOS PROCESOS SON ARBITRARIOS
+   ; PUESTOS PARA LOS FINES DE LA PRUEBA!!!!!!
+
+   ; ¿Se cumplió el tiempo para el proceso 1?
+   if contador == contador_relativo + retardo_salida1 then
+      ; Bajar a 0 el pin de salida
+      salida1 = 0
+      ; grabar datos en EEPROM interna
+      Data_EEprom_Write(5, 1)
+      Data_EEprom_Write_dword(6, contador)
+   end if
+
+   ; ¿Se cumplió el tiempo para el proceso 2?
+   if contador == contador_relativo + retardo_salida2 then
+      ; Bajar a 0 el pin de salida
+      salida2 = 0
+      ; grabar datos en EEPROM interna
+      Data_EEprom_Write(10, 2)
+      Data_EEprom_Write_dword(11, contador)
+   end if
+
+   ; ¿Se cumplió el tiempo para el proceso 3?
+   if contador == contador_relativo + retardo_salida3 then
+      ; Bajar a 0 el pin de salida
+      salida3 = 0
+      ; grabar datos en EEPROM interna
+      Data_EEprom_Write(15, 3)
+      Data_EEprom_Write_dword(16, contador)
+   end if
+
+   ; ¿Se cumplió el tiempo para el proceso 4?
+   if contador == contador_relativo + retardo_salida4 then
+      ; Bajar a 0 el pin de salida
+      salida3 = 0
+      ; grabar datos en EEPROM interna
+      Data_EEprom_Write(20, 4)
+      Data_EEprom_Write_dword(21, contador)
+   end if
+
+   delay_100ms( 1 )
+   ;Incrementar contador de tiempo
+   contador = contador + 1
+
+end loop

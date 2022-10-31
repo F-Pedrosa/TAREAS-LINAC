@@ -1,0 +1,83 @@
+; Rutina que cuenta tiempos entre dos activaciones sucesivas de 2 pines de
+; entrada y según sea el valor de ese tiempo hará diferentes cosas, representado
+; como distintas activaciones de pines de salida.
+
+; Todas las definiciones del hardware están en jal_v2_16F877, que es una librería
+; personalizada ubicada en el mismo directorio del jal principal.
+include jal_v2_16F877
+
+; Verificar que la asignación de pines sea correcta según el hardware de prueba.
+; Seteado de dirección de los pines de entrada/salida
+; pin #2
+pin_a0_direction = input
+; pin #3
+pin_a1_direction = input
+; pin #21
+pin_d2_direction = output
+; pin #22
+pin_d3_direction = output
+
+; Poner alias a los pines que se van a utilizar, para facilitar el uso
+var bit entrada1 is pin_a0
+var bit entrada2 is pin_a1
+var bit salida1 is pin_d2
+var bit salida2 is pin_d3
+
+; Variables a usar, la condición de inicio era que el intervalo a medir
+; estaría en el orden de 60 segundos.
+var dword acumulador = 0
+; Definir valor de referencia (en segundos*10), el valor 100 ES SÓLO UN EJEMPLO.
+const dword mi_constante = 100
+
+; El pin entrada1 es el que al cambiar de estado desde 1 a 0 inicia el conteo.
+; El pin entrada2, distinto del pin entrada1, es el que al cambiar de estado
+; desde 1 a 0 detiene el conteo de tiempo.
+
+; ============================ PRINCIPAL =============================
+
+; Prender ambas salidas durante 1,5 segundos como testigos de funcionamiento
+; del programa.
+salida1 = 1
+salida2 = 1
+delay_100ms(15)
+; Asegurarse que las salidas arranquen bajas
+salida1 = 0
+salida2 = 0
+
+; lazo infinito
+forever loop
+   ; Si el pin pasa a de 1 a 0
+   if entrada1 then
+      ; salidas a 0
+      salida1 = 0
+      salida2 = 0
+      ; y mientras el pin esté en 1 contar el tiempo
+      while entrada2 loop
+         ; contar tiempo en saltos de 100 ms, un valor elegido porque no es
+         ; ni muy pequeño (acumulador se haría innecesariamente grande) ni,
+         ; en principio, demasiado consumidor de tiempo de micro.
+         delay_100ms( 1 )
+         ; incrementar acumulador
+         acumulador = acumulador + 1
+      end loop
+   end if
+
+   ; salida1 y salida2 son nombres para pines genéricos que son actuados según el
+   ; resultado de la comparación entre el tiempo medido y una referencia fija
+   ; llamada "mi_constante".
+   if acumulador > mi_constante then
+      ; si el tiempo medido es mayor o igual que un valor de referencia
+      ; realizar acción, por ejemplo, cambiar de estado salidas
+      salida1 = on
+      salida2 = off
+   else
+      ; si no lo es, poner pines de salida en otro estado
+      salida1 = off
+      salida2 = on
+   end if
+   ; limpiar variable
+   acumulador = 0
+   ; parar el micro, para que se pueda ver el resultado
+   asm sleep
+   
+end loop

@@ -1,0 +1,91 @@
+; Esta es una rutina que al cambiar de estado (de alto a bajo) un pin de entrada
+; del PIC habilita cuentas de tiempo las cuales mantienen en estado alto varios
+; pines de salida durante tiempos distintos (~procesos) para cada pin
+
+
+; Todas las definiciones del hardware están en jal_v2_16F877, que es una librería
+; personalizada ubicada en el mismo directorio del jal principal.
+include jal_v2_16F877
+
+  ; Verificar que la asignación de pines sea correcta según el hardware de prueba.
+  ; Seteado de dirección de los pines de entrada/salida
+  ; pin #2
+  pin_a0_direction = input
+  ; pin #21
+  pin_d2_direction = output
+  ; pin #22
+  pin_d3_direction = output
+
+  ; Nombres más descriptivos para los pines de I/O
+  var bit entrada is pin_a0
+  var bit salida1 is pin_d2
+  var bit salida2 is pin_d3
+;var bit salida3 is pin_xx
+;var bit salida4 is pin_zz
+
+; Var. booleana para usar en el lazo de cronizado.
+var bit bandera = true
+; variable para llevar la cuenta del tiempo transcurrido.
+var word contador = 0
+
+; El código asume que el proceso 1 dura menos que el 2 y así sucesivamente,
+; siendo el último el que más tiempo consume.
+
+; ================= PRINCIPAL =========================
+
+; asegurarse que las salidas arranquen en 0
+salida1 = 0
+salida2 = 0
+
+
+; lazo infinito
+forever loop
+   bandera = true
+      ; Si el pin de entrada está en 0 (o sea, pasa de 5 a 0 V)
+   if entrada == 0 then
+      ; Levantar (poner en 5 Vdc) todos los pines de salida
+      salida1 = 1
+      salida2 = 1
+      ;salida3 = 1
+      ;salida4 = 1
+
+      ; Los valores de contador (que divididos en 10 equivaldrían a segundos) están
+      ; elegidos absolutamente al azar. Si se cambiara (achicara) el valor del delay
+      ; usado en el bucle while (y quizás convendría hacerlo) habría que cambiar
+      ; los límites (aumentando) de la variable contador, en cada caso.
+
+      ; Bucle que incrementa la variable contador cada 100 ms
+      while bandera loop
+         ; ¿Se cumplió el tiempo para el proceso 1?
+         if contador == 30 then
+            ; Bajar a 0 el pin de salida
+            salida1 = 0
+         end if
+         ; ¿Se cumplió el tiempo para el proceso 2?
+         if contador == 60 then
+            ; Bajar a 0 el pin de salida
+            salida2 = 0
+            ; setear booleana que interrumpe el lazo de cronizado
+            bandera = false
+            ; y limpiar contador
+            contador = 0
+         end if
+         ; ¿Se cumplió el tiempo para el proceso 3?
+         ;if contador == 80 then
+            ; Bajar a 0 el pin de salida
+            ;salida3 = 0
+         ;end if
+         ; ¿Se cumplió el tiempo para el proceso 4?
+         ;if contador == 150 then
+            ;Bajar a 0 el pin de salida
+            ;salida4 = 0
+            ; Y para terminar el lazo...
+            ;bandera = false
+         ;end if
+         ;Incrementar contador de tiempo
+         contador = contador + 1
+         ; Retardo de una décima de segundo.
+         delay_100ms( 1 )
+      end loop
+   end if
+end loop
