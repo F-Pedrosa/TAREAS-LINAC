@@ -1,0 +1,133 @@
+include 12f629                     -- target PICmicro
+
+;Los bloques correspondientes al seteado de cada línea en particular, ya sea como entrada
+;o como salida, más los seteos de registros internos del PIC que le permitan generar una
+;interrupción (al ser oprimido un pulsador conectado a esa línea), deben descomentarse según
+;sea la línea elegida.
+
+pragma target clock 4_000_000      ; frecuencia del reloj interno, no cambiar
+
+pragma target OSC      INTOSC_NOCLKOUT
+pragma target BROWNOUT DISABLED
+pragma target MCLR     INTERNAL
+--
+
+; Este código en ensamblador viene del ejemplo de uso de las JalLib para el 12F675
+; Y TIENE QUE ESTAR SIEMPRE PRESENTE.
+assembler
+  page call 0x3FF
+  bank movwf OSCCAL                ; valor de calibración de fábrica del oscilador interno
+end assembler
+
+enable_digital_io()                ; necesaria orden de todos pines digitales
+OPTION_REG = 0b00001110            ; ajuste del prescaler del watchdog para que de unos 1,1 seg
+
+
+
+; Este bloque corresponde a la línea GP5, que corresponde al pin #2 del integrado
+; Como entrada:
+; Como salida:
+pin_GP5_direction = OUTPUT
+alias salida is pin_GP5
+
+; Este bloque corresponde a la línea GP4, que corresponde al pin #3 del integrado
+; Como entrada:
+; Como salida:
+pin_GP4_direction = OUTPUT
+alias salida is pin_GP4
+
+; Este bloque corresponde a la línea GP3, que es sólo entrada, y que corresponde al pin #4 del integrado
+; Como entrada:
+
+; Este bloque corresponde a la línea GP2, que corresponde al pin #5 del integrado
+; Como entrada:
+; Como salida:
+pin_GP2_direction = OUTPUT
+alias salida is pin_GP2
+
+; Este bloque corresponde a la línea GP1, que corresponde al pin #6 del integrado
+; Como entrada:
+; Como salida:
+pin_GP1_direction = OUTPUT
+alias salida is pin_GP1
+
+; Este bloque corresponde a la línea GP0, que corresponde al pin #7 del integrado
+; Como entrada:
+; Como salida:
+pin_GP0_direction = OUTPUT
+alias salida is pin_GP0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+salida = off
+
+include delay
+delay_100ms(4)
+salida = on
+delay_100ms(5)
+salida = off
+
+var bit encender = false
+
+const word tiempo = 30
+const byte encendido = 8
+const byte encendido1 = 10
+
+OPTION_REG_NGPPU = false
+WPU_WPU0 = true
+;WPU_WPU1
+;WPU_WPU2
+;WPU_WPU4
+;WPU_WPU5
+IOC_IOC3 = true
+OPTION_REG_INTEDG = false
+INTCON_GPIE = true
+INTCON_GIE = true
+
+
+PROCEDURE rutina_isr() IS
+   PRAGMA INTERRUPT
+   if INTCON_GPIF then
+      INTCON_GPIF = low
+      encender = true
+   end if
+END PROCEDURE
+
+
+forever loop
+  ;for 2574 loop                        ; 429  ... 10 minutos, 2574 .... 1 hr?
+  for tiempo loop
+      if encender then
+         encender = false
+         salida  = on
+         for encendido loop
+             asm CLRWDT
+             delay_100ms(5)
+         end loop
+         salida  = off
+      end if
+      asm sleep
+  end loop
+  salida = on
+  for encendido1 loop
+      delay_100ms(5)
+      asm CLRWDT
+  end loop
+  salida = off
+  asm CLRWDT
+end loop
+

@@ -1,0 +1,43 @@
+include 12f629                     -- target PICmicro
+
+pragma target clock 4_000_000      -- oscillator frequency
+
+pragma target OSC      HS                        -- crystal or resonator
+pragma target WDT      DISABLED                  -- watchdog
+pragma target BROWNOUT DISABLED                  -- no brownout reset
+pragma target MCLR     INTERNAL
+--
+enable_digital_io()                 -- make all pins digital I/O
+
+alias  led       is pin_A2          -- alias for pin with LED
+
+pin_A2_direction = OUTPUT
+
+-- choose pins to use for int on change
+const byte int_on_change_pins[] = {"B",4, "B",5}
+include interrupt_on_change
+int_on_change_init()
+
+-- interrupt for pin B4
+procedure int_on_change_callback_0() is
+   pragma inline
+   led = int_on_change_0
+end procedure
+
+-- interrupt for pin B5
+procedure int_on_change_callback_1() is
+   pragma inline
+   led = int_on_change_1
+end procedure
+
+asm sleep
+
+
+forever loop
+;   led = ON
+;   _usec_delay(100_000)
+;   led = OFF
+;   _usec_delay(400_000)
+
+end loop
+

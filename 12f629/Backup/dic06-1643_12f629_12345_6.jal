@@ -1,0 +1,97 @@
+include 12f629
+
+pragma target clock 4_000_000      ; frecuencia oscilador interno
+
+pragma target OSC      INTOSC_NOCLKOUT
+pragma target BROWNOUT DISABLED
+pragma target MCLR     INTERNAL
+pragma target WDT      DISABLED
+--
+
+; Este código en ensamblador viene del ejemplo de uso de las JalLib para el 12F675
+; Y TIENE QUE ESTAR SIEMPRE PRESENTE.
+assembler
+  page call 0x3FF
+  bank movwf OSCCAL                ; valor de calibración de fábrica del oscilador interno
+end assembler
+
+enable_digital_io()                ; todos los pines disponibles como digitales
+include delay
+
+; Definición de direcciones de las líneas
+pin_GP5_direction = INPUT
+alias entrada1 is pin_GP5
+pin_GP4_direction = INPUT
+alias entrada2 is pin_GP4
+pin_GP3_direction = INPUT
+alias entrada3 is pin_GP3
+pin_GP2_direction = INPUT
+alias entrada4 is pin_GP2
+pin_GP1_direction = INPUT
+alias entrada5 is pin_GP1
+
+pin_GP0_direction = OUTPUT
+alias salida6 is pin_GP0
+
+salida6 = off
+
+var bit encender6 = false
+
+const byte tiempo_encendido1 = 2
+const byte tiempo_encendido2 = 4
+const byte tiempo_encendido3 = 6
+const byte tiempo_encendido4 = 8
+const byte tiempo_encendido5 = 10
+
+var byte encendido
+
+OPTION_REG_NGPPU = false
+; habilitar los pull-ups en las dos entradas que los tienen (la 3ra usa una R externa)
+WPU_WPU5 = true
+WPU_WPU4 = true
+WPU_WPU2 = true
+WPU_WPU1 = true
+; habilitar la interrupción por cambio en las entradas
+IOC_IOC5 = true
+IOC_IOC4 = true
+IOC_IOC3 = true
+IOC_IOC2 = true
+IOC_IOC1 = true
+; habilitaciones generales de interrupciones
+OPTION_REG_INTEDG = false
+INTCON_GPIE = true
+INTCON_GIE = true
+
+; rutina de interrupción
+PROCEDURE rutina_isr() IS
+   PRAGMA INTERRUPT
+   if INTCON_GPIF then
+      INTCON_GPIF = low
+      if entrada1 == low then
+         encendido = tiempo_encendido1
+      elsif entrada2 == low then
+         encendido = tiempo_encendido2
+      elsif entrada3 == low then
+         encendido = tiempo_encendido3
+      elsif entrada4 == low then
+         encendido = tiempo_encendido4
+      elsif entrada5 == low then
+         encendido = tiempo_encendido5
+      end if
+      encender6 = true
+   end if
+END PROCEDURE
+
+
+forever loop
+   if encender6 then
+      encender6 = false
+      salida6 = on
+      for encendido loop
+             delay_100ms(10)
+      end loop
+      salida6 = off
+   end if
+   asm sleep
+end loop
+

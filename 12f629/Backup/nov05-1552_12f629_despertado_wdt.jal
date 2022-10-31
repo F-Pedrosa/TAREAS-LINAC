@@ -1,0 +1,54 @@
+include 12f629                     -- target PICmicro
+
+pragma target clock 4_000_000      -- oscillator frequency
+
+pragma target OSC      HS                        -- crystal or resonator
+;pragma target WDT      DISABLED                  -- watchdog
+pragma target BROWNOUT DISABLED                  -- no brownout reset
+pragma target MCLR     INTERNAL
+--
+
+_usec_delay(400_000)
+
+enable_digital_io()                 -- make all pins digital I/O
+alias  led       is pin_A2          -- alias for pin with LED
+pin_A2_direction = OUTPUT
+led = off
+
+
+OPTION_REG_NGPPU = false
+WPU_WPU0 = true
+;WPU_WPU1
+;WPU_WPU2
+;WPU_WPU4
+;WPU_WPU5
+IOC_IOC0 = true
+OPTION_REG_INTEDG = false
+
+   led = ON
+   _usec_delay(400_000)
+   led = OFF
+
+INTCON_GPIE = true
+INTCON_GIE = true
+
+
+PROCEDURE rutina_isr() IS
+   PRAGMA INTERRUPT
+   if INTCON_GPIF then
+      INTCON_GPIF = low
+      led = !led
+   end if
+END PROCEDURE
+
+
+asm sleep
+
+forever loop
+;   led = ON
+;   _usec_delay(100_000)
+;   led = OFF
+   _usec_delay(400_000)
+
+end loop
+
