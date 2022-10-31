@@ -1,0 +1,63 @@
+
+
+    Bill of Materials                                               AME2.PCB
+
+                                        
+
+    Quantity  Type              Value             Ref Designators
+    ========================================================================
+
+         2                      .1 uF ceramico    C9,C11
+         1                      1K                R10
+         2                      1K5               R19,R21
+         5                      2M2               R12,R13,R14,R15,R16
+         2                      3K3               R3,R4
+         4                      4K7               R2,R6,R7,R17
+         4                      10 uF electrol.   C3,C4,C5,C6
+         3                      10K               R8,R9,R20
+         2                      22 pF ceramico    C1,C2
+         1                      33 nF ceramico    C10
+         2                      100 uF electrol.  C7,C8
+         1                      150K              R22
+         4                      560               R1,R5,R11,R18
+         1                      amarillo 3mm      LED2
+         2                      rojo 3mm          LED3,LED4
+         1                      verde 3mm         LED1
+         1    1N4148            diodo             D1
+         1    7805              regulador         IC12
+         3    BC547             transistor        Q1,Q3,Q5
+         1    BC557             transistor        Q4
+         1    CR2032 - 3 V      zocalo pila       B1
+         1    DS1307 (RTC)      + zocalo 2x4      IC10
+         1    MAX232            + zocalo 2x8      IC11
+         1    PIC 16F877A       + zocalo 2x20     IC1
+         1    cristal           20 MHz            X1
+         1    cristal           32.768 KHz        X2
+         1    doble inversor    rele 5V           K2
+         1    eepr. 0           + zocalo 2x4      IC2
+         1    eepr. 1           + zocalo 2x4      IC3
+         1    eepr. 2           + zocalo 2x4      IC6
+         1    eepr. 3           + zocalo 2x4      IC8
+         1    eepr. 4           + zocalo 2x4      IC4
+         1    eepr. 5           + zocalo 2x4      IC5
+         1    eepr. 6           + zocalo 2x4      IC7
+         1    eepr. 7           + zocalo 2x4      IC9
+         1    macho             molex 2 pin       CON8
+         3    macho             molex 2 pin 90    CON9,CON10,CON12
+         6    macho             molex 3 pin 90    CON2,CON3,CON4,CON5,CON6,
+                                                  CON7
+         1    macho             molex 5 pin       CON11
+         1    macho             molex 9 pin 90    CON1
+    
+
+
+
+
+
+
+
+
+
+                                        
+
+    25-Jun-13  08:30                                                 Page  1

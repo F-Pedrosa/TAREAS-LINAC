@@ -1,0 +1,23 @@
+Últimos PCBs
+
+
+Bornrel2.pcb
+Esta es la plaqueta que tiene 4 módulos con relé y 3 borneras, que conmuta una de ellas, con las otras dos (con una desenergizado y con la otra energizado).
+Esta es la versión con las borneras de comando abajo.
+
+Bornrels.pcb
+Esta es la plaqueta que tiene 4 módulos con relé y 3 borneras, que conmuta una de ellas, con las otras dos (con una desenergizado y con la otra energizado).
+Esta es la versión con las borneras de comando a la izquierda (no sé si hacía falta finalmente, pero la adjunto igual).
+
+Bornrel6.pcb
+Esta es la plaqueta que tiene 6 módulos con 1 relé y 3 borneras, que conmuta una de ellas (a la izquierda), con las otras dos que están a la derecha (con una desenergizado, la de arriba, y con la otra energizado, la de abajo).
+Esta sería la plaqueta B, según dijimos.
+
+Borrel6a.pcb
+El espejo de la anterior. Esta sería la plaqueta A.
+
+6llaves2.pcb
+La plaqueta con entradas de señal para comandar las anteriores que incorpora llaves con la misma funcionalidad. Esta sería la plaqueta C.
+
+Plaq_d.pcb
+Esta es la plaqueta que incorpora 5 plaquetas lejanas con relé juntándola con las 5 interfaces para salida de señal digital. 

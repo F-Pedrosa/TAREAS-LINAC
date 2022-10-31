@@ -1,0 +1,63 @@
+
+
+    Bill of Materials                                                 TX.PCB
+
+                                        
+
+    Quantity  Type              Value             Ref Designators
+    ========================================================================
+
+         6                                        CON1,CON2,CON3,CON4,CON5,
+                                                  CON6
+         1                      .1 uF             C2
+         2                      2K7               R1,R9
+         1                      4K7               R7
+         1                      10 uF             C3
+         3                      10K               R2,R5,R8
+         1                      33K               R3
+         1                      47nF              C1
+         1                      78L05             IC
+         2                      680               R4,R6
+         4    1N4148                              D1,D2,D3,D4
+         3    BC547                               Q1,Q2,Q3
+         1    CD4093                              IC1
+         1    rojo                                LED2
+         1    verde                               LED1
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                        
+
+    26-Jul-13  17:00                                                 Page  1

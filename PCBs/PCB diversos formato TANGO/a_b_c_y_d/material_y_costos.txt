@@ -1,0 +1,62 @@
+Listas de materiales y estimados de costos
+
+
+BORREL6A.PCB (plaqueta A)
+
+
+         6    Rele 12 Vdc Doble inversor
+        24    bornera impreso 2 pin
+         6    diodo 1N4007
+    
+Costo: $ 110
+
+------------------------------------------------------------------------------------
+
+BORNREL6.PCB  (plaqueta B)
+                                       
+
+         6    Rele 12 Vdc Doble inversor
+        24    bornera impreso 2 pin
+         6    diodo 1N4007
+    
+Costo: $ 110
+
+------------------------------------------------------------------------------------
+
+6LLAVES2.PCB (plaqueta C)
+
+
+         6    bornera impreso 2 vias
+         6    led 3 mm rojo
+         1    led 3 mm verde
+         6    llave palanca 2 puntos de una sola fila de contactos
+         7    molex macho 90 2 vias
+         7    resistor 1/6 W    1K8
+        12    resistor 1/6 W    4K7
+         6    BC547
+    
+Costo: $90 (puede variar dependiendo específicamente del costo de las llaves)
+
+------------------------------------------------------------------------------------
+
+PLAQ_D.PCB
+
+
+         5    resistor 1/6 W 4K7
+         5    resistor 1/6 W 820 ohm
+         1    resistor 1/6 W 1K8
+         5    diodo 1N4007
+         5    led 3 mm rojo
+         1    led 3 mm verde
+         5    Relés 7 A - 250 Vac Simple inversor
+         5    BC547
+         10   bornera impreso 2 vias
+         6    molex macho 90 2 pin
+
+Costo: $80
+
+
+
+
+
+Nota sobre costos: se afectó a los valores originales de costos estimado con un coeficiente de 1,15 para tratar de tener en cuenta las últimos devaluaciones y alteraciones. Por todo ello, son valores muy estimados.

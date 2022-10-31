@@ -1,0 +1,63 @@
+
+
+    Bill of Materials                                                 RX.PCB
+
+                                        
+
+    Quantity  Type              Value             Ref Designators
+    ========================================================================
+
+         3                      .1 uF             C2,C4,C9
+         1                      .22 uF poliester  C1
+         1                      .33 uF cerm mult  C7
+         1                      1 uF              C3
+         1                      1K                R2
+         1                      1N4002            D1
+         1                      2K2               R5
+         1                      2K7               R4
+         1                      2M2               R13
+         1                      10K horizontal    TRIMPOT1
+         3                      12K               R1,R6,R8
+         1                      22K               R9
+         1                      33 nF             C5
+         1                      100K              R14
+         1                      180K              R7
+         1                      680               R3
+         2                      llave             CON7,CON8
+         4                      molex macho 90 2  CON1,CON2,CON3,CON5
+         1                      peine macho90 17  CON4
+         1                      poste macho 90 2  CON6
+         1    78L05                               IC3
+         1    BC547                               Q3
+         1    BD136                               Q1
+         1    CD4013            con zocalo        IC2
+         1    LM567             con zocalo        IC1
+         1    rojo                                LED2
+         1    verde                               LED1
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                        
+
+    26-Jul-13  17:01                                                 Page  1

@@ -1,0 +1,18 @@
+TABLA DE RELACIÓN NÚMERO DE LLAVE A PINES
+
+Llave		a Pin		es Puerto.#línea
+
+1		1		A.2
+2		2		A.3
+3		3		A.4
+4		6		B.0
+5		7		B.1
+6		8		B.2
+7		9		B.3
+8		10		B.4
+9		11		B.5
+10		12		B.6
+11		13		B.7
+12		17		A.0
+13		18		A.1
+
