@@ -1,0 +1,149 @@
+//  Este firmware es para guardar en SD un archivo con tramas de datos (índice, fecha/hora dummy, sensor T y H, pulsado), saliendo de modo sleep al pulsar y periódicamente
+// (ver el lazo LOOP y los comentarios para ajustar el intervalo.
+
+// **** INCLUDES *****
+#include "LowPower.h"
+
+// Pin 2 para despertar al micro
+const int wakeUpPin = 2;
+
+// librerías para usar la SD
+#include <SPI.h>
+#include <SD.h>
+// librerías para usar el sensor de humedad
+#include "Adafruit_Sensor.h"
+#include <DHT.h>
+#include <DHT_U.h>
+
+#define DHTPIN            A0        // Pin de comunicación con el sensor.
+#define DHTTYPE           DHT22     // DHT 22 (o el AM2302 que tenemos), define el tipo de sensor de humedad
+#define SD_CS             10        // alias del pin conectado a CS de la SD  
+#define LED_ROJO          9         // alias del pin del led rojo
+
+DHT_Unified dht(DHTPIN, DHTTYPE);
+
+
+char str[] = "tramas.txt";
+volatile int contador = 0;    
+int indice = 0;    
+
+
+void crear_archivo(){
+File outFile;
+// Abrir archivo
+outFile = SD.open(str, FILE_WRITE);
+if(!outFile){
+  Serial.println(F("No se pudo abrir el archivo"));
+  return;
+}   
+outFile.println(F("Encabezado archivo cuenta evento pines y sensor"));
+outFile.println(F("INDICE   FECHA      HORA   TEMP       HUM%   PULSADOS"));    
+// Cerrar archivo
+outFile.close();
+}
+
+void grabar_datos_archivo(){
+File outFile;
+outFile = SD.open(str, FILE_WRITE);
+if(!outFile){
+  Serial.println(F("No se pudo abrir el archivo"));
+  return;
+}   
+outFile.print(indice);
+indice = indice + 1;
+outFile.print(F(" - AA/MM/DD - HH:MM:SS - "));    
+// Leer sensor de humedad y temperatura AM2302
+sensors_event_t event;  
+// Temperatura
+dht.temperature().getEvent(&event);
+if (isnan(event.temperature)) {
+  Serial.println(F("Error leyendo temperatura!"));
+}
+else {
+  outFile.print(event.temperature);
+  outFile.print(F(" ºC"));
+}
+// Humedad
+dht.humidity().getEvent(&event);
+if (isnan(event.relative_humidity)) {
+  Serial.println(F("Error leyendo humedad!"));
+}
+else {
+  outFile.print(F(" - "));
+  outFile.print(event.relative_humidity);
+  outFile.print(F("%"));
+  outFile.print(F(" - "));
+  outFile.println(contador);
+}  
+// Cerrar archivo
+outFile.close();
+}
+
+
+void wakeUp()
+{
+    // el código de la interrupción.
+    contador = contador + 1;
+}
+
+
+// ========================================================================================================================================================
+
+void setup()
+{
+    // Configure wake up pin as input.
+    // This will consumes few uA of current.
+    pinMode(wakeUpPin, INPUT_PULLUP);   
+
+  //iniciar la salida serial de debug
+  Serial.begin(19200);
+
+  //pin CS a la SD definido como salida
+  pinMode(SD_CS,OUTPUT);
+  // initializar SPI
+  SPI.begin();
+
+  pinMode(3, INPUT_PULLUP);
+  pinMode(4, INPUT_PULLUP);
+
+  
+  pinMode(LED_ROJO, OUTPUT);
+  // prender 2 segs el led rojo
+  digitalWrite(LED_ROJO,HIGH);
+  delay(2000);    //2 segs  
+  digitalWrite(LED_ROJO,LOW);
+  
+  // inicializar sensor de humedad
+  dht.begin();            
+
+  //Inicializar SD
+  while(!SD.begin(SD_CS)){
+    Serial.println(F("¡Error de SD!"));delay(1000);
+  }
+  crear_archivo();  
+  delay(5000);
+  //Serial.println(F("Arrancando"));
+}
+
+
+void loop() 
+{
+    // Habilitar la interrupción que se producirá al oprimirse el botón conectado al pin 2
+    attachInterrupt(0, wakeUp, FALLING);
+    
+    // para despertarse periódicamente cada 10 ( 5 x 2 s)    
+    for (int i = 0 ;  i  <  6 ; i++){
+             LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);      
+    }   
+    // Deshabilitar momentáneamente la interrupción para evitar molestias durante el procesado
+    detachInterrupt(0);     
+    // Carga útil, grabar datos en el archivo de la SD
+    grabar_datos_archivo();  
+    //Serial.println(F("Se grabó trama"));
+    digitalWrite(LED_ROJO,HIGH);
+    delay(50);  
+    digitalWrite(LED_ROJO,LOW);
+    // limpiar cuenta de eventos en pin entrada
+    contador = 0;
+
+}
