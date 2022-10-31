@@ -1,0 +1,236 @@
+; Firm para un 16F877 (en una AME2), para detectar (y medir) interrupciones en dos haces láser
+; grabando tramas con fecha/hora/milésimas.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+; todas las entradas se usarán como I/O digitales, no se usará nada analógico
+enable_digital_io()
+
+include delay
+
+; Aliases
+alias a0 is pin_a0
+alias a1 is pin_a1
+alias a2 is pin_a2
+alias a3 is pin_a3
+alias a4 is pin_a4
+alias a5 is pin_a5
+
+alias b0 is pin_b0
+alias b1 is pin_b1
+alias b2 is pin_b2
+alias b3 is pin_b3
+alias b4 is pin_b4
+alias b5 is pin_b5
+alias b6 is pin_b6
+alias b7 is pin_b7
+
+alias c0 is pin_c0
+alias c1 is pin_c1
+alias c2 is pin_c2
+alias c3 is pin_c3
+alias c4 is pin_c4
+alias c5 is pin_c5
+alias c6 is pin_c6
+alias c7 is pin_c7
+
+alias d0 is pin_d0
+alias d1 is pin_d1
+alias d2 is pin_d2
+alias d3 is pin_d3
+alias d4 is pin_d4
+alias d5 is pin_d5
+alias d6 is pin_d6
+alias d7 is pin_d7
+
+alias e0 is pin_e0
+alias e1 is pin_e1
+alias e2 is pin_e2
+
+; dejar todos los pines de I/O en 0
+a0 = off
+a1 = off
+a2 = off
+a3 = off
+a4 = off
+a5 = off
+b0 = off
+b1 = off
+b2 = off
+b3 = off
+b4 = off
+b5 = off
+b6 = off
+b7 = off
+c0 = off
+c1 = off
+c2 = off
+c3 = off
+c4 = off
+c5 = off
+c6 = off
+c7 = off
+d0 = off
+d1 = off
+d2 = off
+d3 = off
+d4 = off
+d5 = off
+d6 = off
+d7 = off
+e0 = off
+e1 = off
+e2 = off
+
+; y ahora definirlos como salidas
+porta_direction = all_output
+portb_direction = all_output
+portc_direction = all_output
+portd_direction = all_output
+porte_direction = all_output
+
+
+forever loop
+    a0 = on
+    delay_100ms(5)
+    a0 = off
+
+    a1 = on
+    delay_100ms(5)
+    a1 = off
+    
+    a2 = on
+    delay_100ms(5)
+    a2 = off
+    
+    a3 = on
+    delay_100ms(5)
+    a3 = off
+    
+    a4 = on
+    delay_100ms(5)
+    a4 = off
+    
+    a5 = on
+    delay_100ms(5)
+    a5 = off
+    
+    e0 = on
+    delay_100ms(5)
+    e0 = off
+
+    e1 = on
+    delay_100ms(5)
+    e1 = off
+
+    e2 = on
+    delay_100ms(5)
+    e2 = off
+
+    c0 = on
+    delay_100ms(5)
+    c0 = off
+
+    c1 = on
+    delay_100ms(5)
+    c1 = off
+
+    c2 = on
+    delay_100ms(5)
+    c2 = off
+
+    c3 = on
+    delay_100ms(5)
+    c3 = off
+
+    d0 = on
+    delay_100ms(5)
+    d0 = off
+
+    d1 = on
+    delay_100ms(5)
+    d1 = off
+
+    d2 = on
+    delay_100ms(5)
+    d2 = off
+
+    d3 = on
+    delay_100ms(5)
+    d3 = off
+
+    c4 = on
+    delay_100ms(5)
+    c4 = off
+
+    c5 = on
+    delay_100ms(5)
+    c5 = off
+
+    c6 = on
+    delay_100ms(5)
+    c6 = off
+
+    c7 = on
+    delay_100ms(5)
+    c7 = off
+
+    d4 = on
+    delay_100ms(5)
+    d4 = off
+
+    d5 = on
+    delay_100ms(5)
+    d5 = off
+
+    d6 = on
+    delay_100ms(5)
+    d6 = off
+
+    d7 = on
+    delay_100ms(5)
+    d7 = off
+
+    b0 = on
+    delay_100ms(5)
+    b0 = off
+
+    b1 = on
+    delay_100ms(5)
+    b1 = off
+
+    b2 = on
+    delay_100ms(5)
+    b2 = off
+
+    b3 = on
+    delay_100ms(5)
+    b3 = off
+
+    b4 = on
+    delay_100ms(5)
+    b4 = off
+
+    b5 = on
+    delay_100ms(5)
+    b5 = off
+
+    b6 = on
+    delay_100ms(5)
+    b6 = off
+
+    b7 = on
+    delay_100ms(5)
+    b7 = off
+
+
+    delay_100ms(5)
+    
+end loop
+
