@@ -1,0 +1,467 @@
+var bit interRF = 0
+var word noRF = 0
+var bit RCVNW = 0
+var byte DATA_N_SND = 0
+var byte DATA_N_RCV = 0
+var byte RF_DATA[26] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
+var byte RF_DIR = 0
+
+; *****************************************************
+; *                    RF_ON()                        *
+; *****************************************************
+; *Descripción:Esta rutina activa el módulo de        *
+; *radiofrecuencia en modo escucha para poder recibir *
+; *datos enviados a su dirección.                     *
+; *****************************************************
+; *Variables de entrada:                              *
+; *Variables de salida:                               *
+; *****************************************************
+procedure RF_ON is
+   nrf24_ce_pin = low
+   ; CONFIG
+   ; Se activa el modulo, se pone en recepción,
+   ; se activa el CRC para que utilice 2 bytes.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x20
+   spi_master_hw = 0x0F
+   nrf24_csn_pin = high
+   delay_1ms(2)
+   nrf24_ce_pin = high
+   delay_10us(15)
+end procedure
+
+; *****************************************************
+; *                 RF_OFF()                         *
+; *****************************************************
+; *Descripción:Este procedimiento desactiva el módulo *
+; *de radiofrecuencia.                                *
+; *****************************************************
+; *Variables de entrada:                              *
+; *Variables de salida:                               *
+; *****************************************************
+procedure RF_OFF is
+   nrf24_ce_pin = low
+   ; CONFIG
+   ; Se desactiva el modulo
+   nrf24_csn_pin = low
+   spi_master_hw = 0x20
+   spi_master_hw = 0x0C
+   nrf24_csn_pin = high
+end procedure
+
+;; *****************************************************
+;; *                    RF_INT_EN()                    *
+;; *****************************************************
+;; *Descripción:Se encarga de habilitar la interrupción*
+;; *externa (RB0) utilizada por el módulo de RF en la  *
+;; *recepción de datos.                                *
+;; *****************************************************
+;; *Variables de entrada:                              *
+;; *Variables de salida:                               *
+;; *****************************************************
+;procedure RF_INT_EN is   ; Habilitar interrupciones externas con flanco de bajada.
+;   INTCON_GIE = false       ; deshabilitar interrupciones globales primero
+;   INTCON_INT0IE = true    ; habilitar interrupción en pin B.0
+;   INTCON2_INTEDG0 = 0     ; activar con el flanco de bajada
+;   pin_b0_direction = input
+;   INTCON_GIE = true    ; habilitar interrupciones globales
+;end procedure
+;; *****************************************************
+
+
+
+
+; *****************************************************
+; *        RF_CONFIG(int canal, int dir)              *
+; *****************************************************
+; *Descripción:Esta función se encarga de configurar  *
+; *el transceptor habilitando su propia dirección de  *
+; *escucha y el canal entre otros parámetros.         *
+; *****************************************************
+; *Variables de entrada:- Canal                       *
+; *                     - Direccion                   *
+; *Variables de salida:                               *
+; *****************************************************
+procedure RF_CONFIG(byte in canal, byte in dir) is
+
+   nrf24_ce_pin = low
+   ; Configuración de la dirección de envío aleatoria.
+   ; En la función de enviar se configura la dirección
+   ; deseada por el usuario.
+   ; TX_ADDR (0xFF)   está en la posición 0x10 y son 5 bytes
+   nrf24_csn_pin = low        ; inicia comunicación con el módulo
+   spi_master_hw = 0x30       ; mandar comando escribir registro 0x10 (0x30 - 0b001 10000), que tiene 5 bytes de largo
+   spi_master_hw = 0xFF       ; mandar 1er byte dirección
+   spi_master_hw = 0xC2       ; luego mandar los otros 4 que son iguales en este ejemplo
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   nrf24_csn_pin = high       ; termina comunicación con el módulo
+
+   ; Configuración de la direccióndel Pipe0 para la
+   ; recepción de ACK.
+   ; RX_ADDR_P0 (0xFF) ACK  , está en la posición 0xA y son 5 bytes
+   nrf24_csn_pin = low
+   spi_master_hw = 0x2A     ; mandar comando escribir registro 0xA , que tiene 5 bytes de largo
+   spi_master_hw = 0xFF
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   nrf24_csn_pin = high
+
+   ; Configuración de la dirección del Pipe1 para la
+   ; recepción de tramas.
+   ; RX_ADDR_P1 (dir)
+   nrf24_csn_pin = low
+   spi_master_hw = 0x2B
+   spi_master_hw = dir
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   nrf24_csn_pin = high
+
+   ; Configuración de la direccióndel Pipe2 para la
+   ; recepción de tramas
+   ; RX_ADDR_P2 (0x00) BROADCAST
+   nrf24_csn_pin = low
+   spi_master_hw = 0x2C
+   spi_master_hw = 0x00
+   nrf24_csn_pin = high
+
+   ; EN_AA
+   ; Habilitar AutoAck en los Pipe0,Pipe1 y Pipe2.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x21
+   spi_master_hw = 0x07
+   nrf24_csn_pin = high
+
+   ; EN_RXADDR
+   ; Habilitar los Pipe0,Pipe1 y Pipe2.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x22
+   spi_master_hw = 0x07
+   nrf24_csn_pin = high
+
+   ; SETUP_AW
+   ; Configuración de la longitud de las direcciones.
+   ; Direcciones de 5 bytes.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x23
+   spi_master_hw = 0x03
+   nrf24_csn_pin = high
+
+   ;SETUP_RETR
+   ;Configuración de las retrasmisiones en la transmisión.
+   ;Diez retransmisiones cada 336us.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x24
+   spi_master_hw = 0x0A
+   nrf24_csn_pin = high
+
+   ;RF_CH
+   ;Configuración del canal.
+   ;Canal elegido por el usuario (0x01 - 0x7F).
+   nrf24_csn_pin = low
+   spi_master_hw = 0x25
+   spi_master_hw = canal
+   nrf24_csn_pin = high
+
+   ; RF_SETUP
+   ; Configuración aspectos RF. *******************************************************************************************
+   ; Ganancia máxima de LNA, 0dBm potencia de salida y 1Mbps de velocidad. ************************************************
+   nrf24_csn_pin = low
+   spi_master_hw = 0x26
+;   spi_master_hw = 0x07    ; Lo he cambiado a 1Mbps. Originalmente era "0x0F" ----> (2Mbps). (comentario NO FEP)
+   spi_master_hw = 0x27      ; supuestamente esto fija la tasa de transmisión en 250 kbps
+   nrf24_csn_pin = high
+
+   ;STATUS
+   ;Reseteo del registro STATUS
+   nrf24_csn_pin = low
+   spi_master_hw = 0x27
+   spi_master_hw = 0x70
+   nrf24_csn_pin = high
+
+   ;RX_PW_P0
+   ;Nº de bytes en Pipe0.
+   ;1 byte (ACK).
+   nrf24_csn_pin = low
+   spi_master_hw = 0x31
+   spi_master_hw = 0x01
+   nrf24_csn_pin = high
+
+   ;RX_PW_P1
+   ;Nº de bytes en Pipe1.
+   ;10 byte (Direccion emisor y trama).
+   nrf24_csn_pin = low
+   spi_master_hw = 0x32
+;   spi_master_hw = 0x0A
+   spi_master_hw = 28         ; len(rf_data) + 2   !!!!
+   nrf24_csn_pin = high
+
+   ;RX_PW_P2
+   ;Nº de bytes en Pipe2.
+   ;10 byte (Direccion emisor y trama).
+   nrf24_csn_pin = low
+   spi_master_hw = 0x33
+;   spi_master_hw = 0x0A
+   spi_master_hw = 28         ; len(rf_data) + 2   !!!!
+   nrf24_csn_pin = high
+
+end procedure
+
+
+; *****************************************************
+; *                 RF_SEND()                         *
+; *****************************************************
+; *Descripción:Esta función envía 8 Bytes de datos a  *
+; *la dirección indicada informando de la correcta    *
+; *recepción en el destinatario.                      *
+; *****************************************************
+; *Variables de entrada:- RF_DATA[]                   *
+; *                     - RF_DIR
+; *Variables de salida: -                             *
+; *Salida:              - 0: Envío correcto (ACK OK)  *
+; *                     - 1: No recepcibido (NO ACK)  *
+; *                     - 2: No enviado               *
+; *****************************************************
+function RF_SEND return word is
+   var word i = 0
+   var word estado
+
+;   if INTCON_GIE_GIEH == true then
+;      interRF=1
+;   else
+;      interRF=0
+;   end if
+
+
+   ; deshabilitar interrupciones globales
+   while INTCON_GIE loop
+      INTCON_GIE = false
+   end loop
+
+   ;  INICIO
+   nrf24_ce_pin = low
+
+   ; STATUS
+   ; Reseteo del registro STATUS
+   nrf24_csn_pin = low
+   spi_master_hw = 0x27
+   spi_master_hw = 0x70
+   nrf24_csn_pin = high
+
+   ;  EN_RXADDR
+   ; Se habilita el Pipe0 para la recepción del ACK
+   nrf24_csn_pin = low
+   spi_master_hw = 0x22
+   spi_master_hw = 0x01
+   nrf24_csn_pin = high
+
+   ;  TX_ADDR
+   ; Se configura la dirección de transmisión=RF_DIR
+   nrf24_csn_pin = low
+   spi_master_hw = 0x30
+   spi_master_hw = RF_DIR
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   nrf24_csn_pin = high
+
+   ;  RX_ADDR_P0
+   ; Para la recepción del ACK se debe configurar el Pipe0 con
+   ; la misma dirección a trasmitir.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x2A
+   spi_master_hw = RF_DIR
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   spi_master_hw = 0xC2
+   nrf24_csn_pin = high
+
+   ;  RX_ADDR_P1
+   ; Se mete en RF_DIR la direccion propia.
+   ; De esta manera el receptor sabe la dirección
+   ; del transmisor.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x0B
+   RF_DIR = spi_master_hw_exchange(0x0)
+   ; esto recibe los siguientes 4 bytes de los 5 que forman la dirección propia
+   var byte dummy
+   dummy = spi_master_hw_exchange(0x0)
+   dummy = spi_master_hw_exchange(0x0)
+   dummy = spi_master_hw_exchange(0x0)
+   dummy = spi_master_hw_exchange(0x0)
+   nrf24_csn_pin = high
+
+   ;  W_TX_PAYLOAD
+   ; Se manda los datos al transductor
+   nrf24_csn_pin = low
+   spi_master_hw = 0xA0               ; Comando para enviar al módulo el payload a transmitir
+   DATA_N_SND = DATA_N_SND + 1
+   spi_master_hw = DATA_N_SND
+   spi_master_hw = RF_DIR
+   i = 0
+   for 26 using i loop
+         spi_master_hw = RF_DATA[i]
+   end loop
+   nrf24_csn_pin = high
+
+   ;  CONFIG
+   ; Se pasa a modo transmisión.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x20
+   spi_master_hw = 0x0E
+   nrf24_csn_pin = high
+
+   ;  Pulso de comienzo de envío
+   nrf24_ce_pin = high
+   delay_10us(1)
+   delay_5us()
+   nrf24_ce_pin = low
+
+   noRF = 0
+   while (nrf24_irq_pin == 1) loop       ; si se concreta la transmisión, el pin interrupcion baja brevemente a 0
+      noRF = noRF + 1
+      ; Si no da respuesta en 7ms, no se ha enviado (de dónde sale este valor?????)
+      if (noRF==500) then
+         exit loop
+      end if
+   end loop
+
+   ;  STATUS
+   ; Lectura del estado en el registro status.
+   nrf24_csn_pin = low
+   estado = spi_master_hw_exchange(0x27)       ; estado = spi_read(0x27)    LECTURA DEL REGISTRO STATUS?
+   spi_master_hw = 0x70
+   nrf24_csn_pin = high
+
+   ;  EN_RXADDR
+   ; Habilitar los Pipe0,Pipe1 y Pipe2.
+   nrf24_csn_pin = low
+   spi_master_hw = 0x22
+   spi_master_hw = 0x07
+   nrf24_csn_pin = high
+
+   ;  TX_FLUSH
+   ; Limpieza de la FIFO de salida
+   nrf24_csn_pin = low
+   spi_master_hw = 0xE1
+   nrf24_csn_pin = high
+
+   ;  CONFIG
+   ; Pasar a modo recepción
+   nrf24_csn_pin = low
+   spi_master_hw = 0x20
+   spi_master_hw = 0x0F
+   nrf24_csn_pin = high
+
+   ;  FIN
+   nrf24_ce_pin = high
+
+   delay_10us(15);
+
+   ; Si no da respuesta en 7ms, no se ha enviado. (¿¿¿de dónde sale ese valor???)
+   if (noRF==500) then
+      if interRF then
+         INTCON_GIE = true      ; rehabilitar interrupciones?
+         ;INTCON_T0IF = false       ; limpiar bandera
+         return 2
+      end if
+   end if
+
+   ; estado
+   ; Chequeo de los bit del registro STATUS que indican si se ha recibido
+   ; ACK y si se ha terminado las retrasmisiones sin ningun ACK.
+   if ((estado & 0b0000000000010000) == 0) & ((estado & 0b0000000000100000) == 1)  then
+      if interRF then
+         INTCON_GIE = true      ; rehabilitar interrupciones?
+;         INTCON_T0IF = false       ; limpiar bandera
+         return 0
+      end if
+   else
+      if interRF then
+         INTCON_GIE = true      ; rehabilitar interrupciones?
+;         INTCON_T0IF = false       ; limpiar bandera
+         return 1
+      end if
+   end if
+
+
+end function
+
+
+; *****************************************************
+; *                 RF_RECEIVE()                      *
+; *****************************************************
+; *Descripción: Esta rutina se encarga de comprobar si*
+; *se ha producido una recepción y de ser así,        *
+; *devuelve la trama recibida.                        *
+; *****************************************************
+; *Variables de entrada:-                             *
+; *Variables de salida: - RF_DATA[]                   *
+; *                     - RF_DIR                      *
+; *Salida:         - 0: Recepción correcta y única    *
+; *                - 1: Recepción correcta y múltiple *
+; *                - 2: No se ha producido recepción  *
+; *                - 3: No se ha producido recepción  *
+; *****************************************************
+;int RF_RECEIVE()
+
+function rf_receive return byte is
+
+   var byte i
+   var byte mas
+   var byte estado
+
+   if (nrf24_irq_pin==1) & (RCVNW==0) then
+      return (2)
+   end if
+
+   ; STATUS
+   ; Lectura y reseteo del registro STATUS  (FUNDAMENTAL!!!!!)
+   nrf24_csn_pin = low
+   estado = spi_master_hw_exchange(0x27) ; el nRF devuelve el contenido del registro STATUS via bus SPI
+   spi_master_hw = 0x70                  ; mandar 0b1110000 a STATUS , limpiar bits RX_DR, TX_DS y MAX_RT del registro estatus (SÍ! SE LIMPIAN CON 1!)
+   nrf24_csn_pin = high
+
+   ; estado
+   ; Chequeo de la interrupción de recepción.
+   if ((estado & 6)== 0) & ( RCVNW == 0) then        ; bit 6 es RX_DR (Data Ready del RX).
+      return 3
+   end if
+
+    ;R_RX_PAYLOAD
+    ;Lectura de los datos recibidos.
+    nrf24_csn_pin = low
+    spi_master_hw = 0x61
+    DATA_N_RCV = spi_master_hw
+    RF_DIR = spi_master_hw
+    for 26 using i loop
+        RF_DATA[i] = spi_master_hw
+    end loop
+    nrf24_csn_pin = high
+
+    ; FIFO_STATUS
+    ; Comprobación del estado de la FIFO de
+    ; recepción para comprobar si hay más datos
+    nrf24_csn_pin = low
+    spi_master_hw = 0x17
+    mas = spi_master_hw
+    nrf24_csn_pin = high
+
+    if (mas & 0b00000000)==0 then
+       RCVNW=1
+       return 1
+    end if
+    RCVNW = 0
+    return 0
+
+end function
+
+
+
