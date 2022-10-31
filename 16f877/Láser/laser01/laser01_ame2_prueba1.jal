@@ -1,0 +1,77 @@
+; Firm para un 16F877 para las comunicaciones usando el laser (protocolo RS232). Módulo para una AME2.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+; todas las entradas se usarán como I/O digitales, no se usará nada analógico
+enable_digital_io()
+include delay
+
+; Para comunicaciones seriales x hardware (hacia la PC)
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+
+
+alias serial_sw_tx_pin           is pin_c1
+alias serial_sw_tx_pin_direction is pin_c1_direction
+alias serial_sw_rx_pin           is pin_a0
+const serial_sw_baudrate = 12500
+const serial_sw_invert = true
+serial_sw_tx_pin_direction = output
+; 8 bits de datos, 1 bit de parada, sin paridad ni handshake.
+const serial_sw_stopbits = 1 ; 1 stopbit.
+include serial_software
+; inicializar pines de acuerdo a librería
+serial_sw_init()
+
+alias testigo is pin_b7
+pin_b7_direction = output
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+; ============================================= PRINCIPAL ================================================================
+
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+testigo = on
+delay_100ms(10)              ; 1 seg
+testigo = off
+delay_100ms( 2 )
+
+;
+
+serial_hw_write("o")
+serial_hw_write("k")
+serial_hw_write(13)
+serial_hw_write(10)
+
+var byte x = 0
+
+forever loop
+   ; recibir por la serial x software y reenviar x la serial x hardware a la PC, de manera de chequeo
+   if (serial_sw_read(x) == true) then -- serial_sw_read blocks until a char is received and disables interrupts
+      serial_hw_write(x)  -- por la serial hw a la PC
+   end if
+end loop

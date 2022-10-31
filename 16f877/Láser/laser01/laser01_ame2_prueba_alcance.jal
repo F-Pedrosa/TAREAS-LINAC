@@ -1,0 +1,58 @@
+; Firm para un 16F877 para las comunicaciones usando el laser (protocolo RS232). Módulo para una AME2.
+; Para probar alcance del laser
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+; todas las entradas se usarán como I/O digitales, no se usará nada analógico
+enable_digital_io()
+include delay
+
+; Para comunicaciones seriales x hardware (hacia la PC)
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+
+alias testigo is pin_b7
+pin_b7_direction = output
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+; ============================================= PRINCIPAL ================================================================
+
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+testigo = on
+delay_100ms(5)              ; 1/2 seg
+testigo = off
+delay_100ms( 2 )
+
+
+forever loop
+   if pin_a0 == false then    ; pin_a0 = entrada laser 1
+      testigo = on
+   else
+      testigo = off
+   end if
+end loop

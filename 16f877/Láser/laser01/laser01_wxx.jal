@@ -1,0 +1,76 @@
+; Firm para un 16F877 para las comunicaciones usando el laser (protocolo RS232). Módulo para una wxx.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+; todas las entradas se usarán como I/O digitales, no se usará nada analógico
+enable_digital_io()
+include delay
+
+alias entrada1 is pin_b0
+pin_b0_direction = input
+
+
+alias entrada2 is pin_b1
+pin_b1_direction = input
+
+alias laser1 is pin_c4
+pin_c4_direction = output
+
+alias laser2 is pin_c5
+pin_c5_direction = output
+
+alias laser3 is pin_c6
+pin_c6_direction = output
+
+
+
+alias serial_sw_tx_pin           is pin_C4
+
+alias serial_sw_tx_pin_direction is pin_C4_direction
+
+alias serial_sw_rx_pin           is pin_C7
+
+const serial_sw_baudrate = 12500
+const serial_sw_invert = true
+serial_sw_tx_pin_direction = output
+; 8 bits de datos, 1 bit de parada, sin paridad ni handshake.
+const serial_sw_stopbits = 1 ; 1 stopbit.
+include serial_software
+; inicializar pines de acuerdo a librería
+serial_sw_init()
+
+
+; =================================================== PRINCIPAL ==========================================================
+
+var byte caracter = 33
+
+forever loop
+;  while entrada1 == 1 loop
+;     serial_sw_write(caracter)     ; enviar una "a" por las líneas definidas para comunicación serial x láser.
+;     if caracter == 125 then
+;        caracter = 33
+;     else
+;         caracter = caracter + 1
+;     end if
+;  end loop
+
+   if entrada1 == 1 then
+      serial_sw_write(32)
+      delay_1ms(2)
+      for 5000 loop
+         if caracter == 125 then
+            caracter = 33
+         else
+            caracter = caracter + 1
+         end if
+         serial_sw_write(caracter)
+      end loop
+      serial_sw_write(32)
+   end if
+end loop

@@ -1,0 +1,225 @@
+; Firm para un 16F877 para las comunicaciones usando el laser (protocolo RS232). Módulo para una AME2.
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+; todas las entradas se usarán como I/O digitales, no se usará nada analógico
+enable_digital_io()
+include delay
+
+; Para comunicaciones seriales x hardware (hacia la PC)
+const serial_hw_baudrate = 115_200
+include serial_hardware
+serial_hw_init()
+
+
+alias serial_sw_tx_pin           is pin_c1
+alias serial_sw_tx_pin_direction is pin_c1_direction
+alias serial_sw_rx_pin           is pin_a0
+const serial_sw_baudrate = 12500
+const serial_sw_invert = true
+serial_sw_tx_pin_direction = output
+; 8 bits de datos, 1 bit de parada, sin paridad ni handshake.
+const serial_sw_stopbits = 1 ; 1 stopbit.
+include serial_software
+; inicializar pines de acuerdo a librería
+serial_sw_init()
+
+; Pines I2C
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; Constantes I2C
+const word _i2c_bus_speed = 4 ; 400 kHz
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; Incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+
+; variables
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+var byte digi4 = 0
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+var word contador_caracteres = 0
+
+alias testigo is pin_b7
+pin_b7_direction = output
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+;   ;----------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+;   ;----------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+;   ;----------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+;   ; -------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+;   ; -------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+;   ; -------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; -------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; -------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+end procedure
+procedure bin2digits( byte out digi2, byte out digi1, byte out digi0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   digi2 = centena
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = numero
+end procedure
+procedure word2digits( byte out digi4, byte out digi3, byte out digi2, byte out digi1, byte out digi0, word in numero ) is
+
+   var word dec_miles = 0
+   var word miles = 0
+   var word centena = 0
+   var byte decena = 0
+
+   dec_miles = numero/10000
+   digi4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   digi3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   digi2 = byte(centena)
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = byte(numero)
+
+end procedure
+
+; ============================================= PRINCIPAL ================================================================
+
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+testigo = on
+delay_100ms(10)              ; 1 seg
+testigo = off
+delay_100ms( 2 )
+
+;
+
+serial_hw_write("o")
+serial_hw_write("k")
+serial_hw_write(13)
+serial_hw_write(10)
+
+var byte x = 0
+
+forever loop
+   ; recibir por la serial x software y reenviar x la serial x hardware a la PC, de manera de chequeo
+   if (serial_sw_read(x) == true) then -- serial_sw_read blocks until a char is received and disables interrupts
+      if x == 32 then
+         obtener_fecha_hora
+         bin2digits(digi2,digi1,digi0,hora)
+         serial_hw_write(digi1+48)
+         serial_hw_write(digi0+48)
+         serial_hw_write(":")
+         bin2digits(digi2,digi1,digi0,minuto)
+         serial_hw_write(digi1+48)
+         serial_hw_write(digi0+48)
+         serial_hw_write(":")
+         bin2digits(digi2,digi1,digi0,segundo)
+         serial_hw_write(digi1+48)
+         serial_hw_write(digi0+48)
+         serial_hw_write(13)
+         serial_hw_write(10)
+         ; contador
+         word2digits(digi4,digi3,digi2,digi1,digi0,contador_caracteres)
+         serial_hw_write(digi4+48)
+         serial_hw_write(digi3+48)
+         serial_hw_write(digi2+48)
+         serial_hw_write(digi1+48)
+         serial_hw_write(digi0+48)
+      else
+         serial_hw_write(x)  -- por la serial hw a la PC
+         contador_caracteres = contador_caracteres + 1
+      end if
+   end if
+end loop
