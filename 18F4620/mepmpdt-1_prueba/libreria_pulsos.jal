@@ -1,0 +1,31 @@
+; Librería para incluir todo lo relacionado con la codificación y transmisión de byte sobre línea de 12 Vdc
+
+procedure corto is
+   pwm1_on
+   delay_10us(50)
+   pwm1_off
+end procedure
+
+procedure largo is
+   pwm1_on
+   delay_1ms(1)
+   pwm1_off
+end procedure
+
+procedure espacio is
+   pwm1_off
+   delay_1ms(1)
+end procedure
+
+procedure final is
+   pwm1_on
+   delay_1ms(2)
+   pwm1_off
+end procedure
+
+
+
+
+
+
+

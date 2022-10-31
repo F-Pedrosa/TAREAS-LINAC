@@ -1,0 +1,194 @@
+; Firmware para la prueba del hardware de la mepmpdt-1
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+; -----------------------------------------------------------
+; Protocolo I2C implementado por software, sensor de presión.
+alias i2c_scl            is pin_d6
+alias i2c_scl_direction  is pin_d6_direction
+alias i2c_sda            is pin_d5
+alias i2c_sda_direction  is pin_d5_direction
+const word _i2c_bus_speed = 1 ; * 100kHz
+include i2c_software
+i2c_initialize()
+; -----------------------------------------------------------
+; setup spi e inclusión librería spi (el hardware para comunicarse con el transceptor)
+include spi_master_hw_fep
+; definir entradas/salidas spi (no hay mucha alternativa, las fija el hard)
+pin_sdi_direction = input    ; entrada datos spi
+pin_sdo_direction = output   ; salida datos spi
+pin_sck_direction = output   ; clock spi (salida)
+; -----------------------------------------------------------
+spi_init(SPI_MODE_00,SPI_RATE_FOSC_4) ; <----- SETEOS PARA EL nRF24L01, ATENCIÓN!!!!!!!!!!!!!!
+alias nrf24_ce_pin is pin_b5                        ; B.5 maneja al pin CE del módulo
+alias nrf24_ce_pin_direction is pin_b5_direction
+nrf24_ce_pin_direction = output
+alias nrf24_csn_pin is pin_b4                        ; B.4 maneja al pin CSN del módulo
+alias nrf24_csn_pin_direction is pin_b4_direction
+nrf24_csn_pin_direction = output
+alias spi_master_exchange is spi_master_hw_exchange
+nrf24_ce_pin = low
+nrf24_csn_pin = high
+delay_1ms(10)
+alias nrf24_irq_pin is pin_b0                        ; B.0 recibe la salida IRQ del módulo
+alias nrf24_irq_pin_direction is pin_b0_direction
+nrf24_irq_pin_direction = input
+const byte tamanio_rf_data = 8      ; definir el tamaño del arreglo, debe ser IGUAL en el otro firmware (Tx y/o Rx)
+include nrf24l01_traducido_desde_C_v3
+; -----------------------------------------------------------
+include pwm_hardware
+include libreria_pulsos
+
+; -----------------------------------------------------------
+; librería para acceder al sensor de humedad (y temperatura) AM2302
+const bit USE_DHT22 = true
+alias pin_dht11 is pin_b1
+alias pin_dht11_direction is pin_b1_direction
+include temperature_humidity_dht11
+; -----------------------------------------------------------
+; librería para acceder al sensor de presión (y temperatura) BMP180
+include bmp085
+; -----------------------------------------------------------
+alias testigo is pin_c1
+pin_c1_direction = output
+
+alias zumbador is pin_c6
+pin_c6_direction = output
+
+alias pulsador is pin_a4
+pin_a4_direction = input
+
+var word direccion = 0
+
+var word humedad = 0
+var byte resultado = 0
+var sword temperaturaP = 0
+var dword presion = 0
+var bit resul = 0
+
+var byte ind = 0
+var word resul_rf = 0
+
+; Arreglos para poder dividir los words y dwords en bytes individuales
+; Humedad/Temperatura
+var byte bytes_dht11_temperature[2] at dht11_temperature
+var byte bytes_dht11_humidity[2] at dht11_humidity
+
+; Presión/Temperatura
+var byte bytes_presion[4] at presion
+var byte bytes_temperaturaP[2] at temperaturaP
+
+; -------------------------------------------------------------------------------------------------
+procedure escribir_trama_eeprom_de_prueba( byte in eepr_pos, word in address) is
+
+   var byte AX[2] at address
+   var bit resul
+
+   i2c_start()
+
+   resul = i2c_transmit_byte(eepr_pos)
+   resul = i2c_transmit_byte(AX[1])
+   resul = i2c_transmit_byte(AX[0])
+
+   resul = i2c_transmit_byte(bytes_dht11_temperature[0])
+   resul = i2c_transmit_byte(bytes_dht11_temperature[1])
+
+   resul = i2c_transmit_byte(bytes_dht11_humidity[0])
+   resul = i2c_transmit_byte(bytes_dht11_humidity[1])
+
+   resul = i2c_transmit_byte(bytes_presion[0])
+   resul = i2c_transmit_byte(bytes_presion[1])
+   resul = i2c_transmit_byte(bytes_presion[2])
+   resul = i2c_transmit_byte(bytes_presion[3])
+   
+   resul = i2c_transmit_byte(bytes_temperaturaP[0])
+   resul = i2c_transmit_byte(bytes_temperaturaP[1])
+
+   ; 6 bytes dummy por el tema de la escritura por página (múltiplos de 8)
+   resul = i2c_transmit_byte(0)
+   resul = i2c_transmit_byte(0)
+   resul = i2c_transmit_byte(0)
+   resul = i2c_transmit_byte(0)
+   resul = i2c_transmit_byte(0)
+   resul = i2c_transmit_byte(0)
+
+   i2c_stop()
+
+   direccion = direccion + 16
+
+   delay_1ms(4)
+
+end procedure
+
+; -------------------------------------------------------------------------------------------------
+pwm_set_frequency(300_000)
+pwm1_set_dutycycle_percent(50)
+alias salida_pwm is pin_c2
+pin_c2_direction =  output
+; ======================================================================================================================
+salida_pwm = off
+pwm1_on
+; =========================================================================================================================
+bmp085_init(resul)
+
+;spi_init(SPI_MODE_00,SPI_RATE_FOSC_4) ; <----- SETEOS PARA EL nRF24L01
+nrf24_csn_pin_direction = output      ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+delay_1ms(5)
+RF_CONFIG(0x40,10)                    ; Configurar módulo RF (canal y dirección).
+RF_ON()                               ; Activar el módulo RF.
+delay_1ms(5)
+nrf24_csn_pin_direction = output     ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+
+testigo = on
+zumbador = on
+delay_100ms(1)
+testigo = off
+zumbador = off
+delay_100ms(10)
+
+
+forever loop
+
+
+;   resultado = dht11_read()
+;   bmp085_return_temperature_and_pressure(2,temperaturaP,presion,resul)
+;   escribir_trama_eeprom_de_prueba(0b1010_0000, direccion)
+;
+;   delay_100ms(30)                 ; cada 3 segundos
+;   zumbador = on
+;   delay_100ms(1)
+;   zumbador = off
+
+
+
+
+   pwm1_on
+   delay_100ms(5)                    ; cada 1/2 segundo...
+   pwm1_off
+   delay_100ms(5)                    ; cada 1/2 segundo...
+   ; -----------------------------------------------------
+   rf_data[0] = ind
+   ind = ind + 1
+   RF_DIR = 9
+   resul_rf = RF_SEND()
+   testigo = !testigo
+
+end loop
+

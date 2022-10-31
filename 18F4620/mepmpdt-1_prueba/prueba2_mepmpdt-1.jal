@@ -1,0 +1,170 @@
+; Firmware para la prueba del hardware de la mepmpdt-1
+include 18f4620
+
+pragma target clock 20_000_000
+pragma target PWRTE  enabled          ; power up timer enabled
+pragma target OSC      HS             ; crystal or resonator
+pragma target WDT      CONTROl        ; watchdog
+pragma target XINST    DISABLED       ; extended instruction set
+pragma target DEBUG    DISABLED       ; debugging
+pragma target BROWNOUT DISABLED       ; brownout reset
+pragma target FCMEN    DISABLED       ; clock monitoring
+pragma target IESO     DISABLED       ; int/ext osc. switch
+pragma target LVP      DISABLED       ; low voltage programming
+pragma target MCLR     INTERNAL       ; E.3 habilitado
+
+WDTCON_SWDTEN = OFF                 ; disable WDT
+OSCCON_SCS = 0                      ; select primary oscillator
+OSCTUNE_PLLEN = FALSE               ; no PLL
+
+enable_digital_io()                   ; todos los pines como I/O digitales en el arranque
+
+; -----------------------------------------------------------
+; Protocolo I2C implementado por software, EEPROMs y RTC y sensor de presión.
+alias i2c_scl            is pin_d6
+alias i2c_scl_direction  is pin_d6_direction
+alias i2c_sda            is pin_d5
+alias i2c_sda_direction  is pin_d5_direction
+const word _i2c_bus_speed = 1 ; * 100kHz
+include i2c_software
+i2c_initialize()
+; ------------------------------------------------------------
+alias spi_master_sw_sdi              is pin_c4
+alias spi_master_sw_sdi_direction    is pin_c4_direction
+alias spi_master_sw_sdo              is pin_c5
+alias spi_master_sw_sdo_direction    is pin_c5_direction
+alias spi_master_sw_sck              is pin_c3
+alias spi_master_sw_sck_direction    is pin_c3_direction
+spi_master_sw_sdi_direction = input    -- spi input
+spi_master_sw_sdo_direction = output   -- spi output
+spi_master_sw_sck_direction = output   -- spi clock
+include spi_master_sw
+spi_master_sw_init(SPI_MODE_00)          ; init spi, choose mode
+alias spi_master_hw is spi_master_sw     ; ATENCIÓN!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+alias spi_master_hw_exchange is spi_master_sw_exchange
+; ------------------------------------------------------------
+alias nrf24_ce_pin is pin_b5
+alias nrf24_ce_pin_direction is pin_b5_direction
+nrf24_ce_pin_direction = output
+alias nrf24_csn_pin is pin_b4
+alias nrf24_csn_pin_direction is pin_b4_direction
+nrf24_csn_pin_direction = output
+alias spi_master_exchange is spi_master_sw_exchange
+nrf24_ce_pin = low
+nrf24_csn_pin = high
+delay_1ms(10)
+alias nrf24_irq_pin is pin_b0
+alias nrf24_irq_pin_direction is pin_b0_direction
+nrf24_irq_pin_direction = input
+const byte tamanio_rf_data = 8      ; definir el tamaño del arreglo, debe ser IGUAL en el otro firmware (Tx y/o Rx)
+include nrf24l01_traducido_desde_C_v3
+; -------------------------------------------------------------------------------------------------------------
+; -----------------------------------------------------------
+;include pwm_hardware
+;include libreria_pulsos
+
+; -----------------------------------------------------------
+alias testigo is pin_c1
+pin_c1_direction = output
+
+alias zumbador is pin_c6
+pin_c6_direction = output
+
+alias pulsador is pin_a4
+pin_a4_direction = input
+
+var word direccion = 0
+
+; -------------------------------------------------------------------------------------------------
+
+procedure escribir_trama_eeprom_de_prueba( byte in eepr_pos, word in address) is
+
+   var byte AX[2] at address
+   var bit resul
+
+   i2c_start()
+
+   resul = i2c_transmit_byte(eepr_pos)
+   resul = i2c_transmit_byte(AX[1])
+   resul = i2c_transmit_byte(AX[0])
+   resul = i2c_transmit_byte(0)
+   resul = i2c_transmit_byte(1)
+   resul = i2c_transmit_byte(2)
+   resul = i2c_transmit_byte(3)
+   resul = i2c_transmit_byte(4)
+   resul = i2c_transmit_byte(5)
+   resul = i2c_transmit_byte(6)
+   resul = i2c_transmit_byte(7)
+   resul = i2c_transmit_byte(8)
+   resul = i2c_transmit_byte(9)
+   resul = i2c_transmit_byte(10)
+   resul = i2c_transmit_byte(11)
+   resul = i2c_transmit_byte(12)
+   resul = i2c_transmit_byte(13)
+   resul = i2c_transmit_byte(14)
+   resul = i2c_transmit_byte(15)
+   i2c_stop()
+
+   direccion = direccion + 16
+
+   delay_1ms(4)
+
+end procedure
+
+; -------------------------------------------------------------------------------------------------
+;pwm_set_frequency(300_000)
+;pwm1_set_dutycycle_percent(50)
+
+
+alias salida_pwm is pin_c2
+pin_c2_direction =  output
+
+; ======================================================================================================================
+salida_pwm = off
+;pwm1_on
+; =========================================================================================================================
+
+;spi_init(SPI_MODE_00,SPI_RATE_FOSC_4) ; <----- SETEOS PARA EL nRF24L01
+nrf24_csn_pin_direction = output      ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+delay_1ms(5)
+RF_CONFIG(0x40,10)                    ; Configurar módulo RF (canal y dirección).
+RF_ON()                               ; Activar el módulo RF.
+delay_1ms(5)
+nrf24_csn_pin_direction = output     ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+
+testigo = on
+zumbador = on
+delay_100ms(1)
+testigo = off
+zumbador = off
+
+var byte ind = 0
+var word resul_rf = 0
+
+
+delay_100ms(20)
+
+forever loop
+;        escribir_trama_eeprom_de_prueba(0b1010_0000, direccion)
+;        testigo = on
+;        asm sleep      ; que grabe una sola y se detenga
+
+
+;   pwm1_on
+;   delay_100ms(5)                    ; cada 1/2 segundo...
+;   pwm1_off
+;   delay_100ms(5)                    ; cada 1/2 segundo...
+
+   
+   ; -----------------------------------------------------
+
+   rf_data[0] = ind
+   ind = ind + 1
+   RF_DIR = 9
+   resul_rf = RF_SEND()
+   testigo = !testigo
+
+   delay_100ms(10)
+
+end loop
+
