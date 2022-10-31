@@ -1,0 +1,10 @@
+Encabezado archivo cuenta evento pines y sensor
+INDICE   FECHA      HORA   TEMP       HUM%   PULSADOS
+0 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 50.50% - 0
+1 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 50.50% - 0
+2 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 49.10% - 0
+3 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 49.10% - 0
+4 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 48.90% - 0
+5 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 48.90% - 0
+6 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 48.80% - 0
+7 - AA/MM/DD - HH:MM:SS - 15.50 ºC - 48.80% - 0
