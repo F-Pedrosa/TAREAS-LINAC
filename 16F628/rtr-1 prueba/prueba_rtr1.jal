@@ -1,0 +1,96 @@
+include 16f628a
+
+pragma target clock 20_000_000      ; xtal
+
+pragma target OSC      HS
+pragma target WDT      DISABLED     ; sin watchdog
+pragma target BROWNOUT DISABLED     ; sin brownout reset
+pragma target LVP      DISABLED     ; sin low voltage programming
+pragma target MCLR     INTERNAL     ; pin A5 como entrada digital
+
+enable_digital_io()
+include delay
+; -----------------------------------------------------------
+; Protocolo I2C implementado por software, EEPROM
+alias i2c_scl            is pin_a2
+alias i2c_scl_direction  is pin_a2_direction
+alias i2c_sda            is pin_a3
+alias i2c_sda_direction  is pin_a3_direction
+const word _i2c_bus_speed = 1 ; * 100kHz
+include i2c_software
+i2c_initialize()
+; ------------------------------------------------------------
+alias spi_master_sw_sdi              is pin_b1
+alias spi_master_sw_sdi_direction    is pin_b1_direction
+alias spi_master_sw_sdo              is pin_b2
+alias spi_master_sw_sdo_direction    is pin_b2_direction
+alias spi_master_sw_sck              is pin_b4
+alias spi_master_sw_sck_direction    is pin_b4_direction
+spi_master_sw_sdi_direction = input    -- spi input
+spi_master_sw_sdo_direction = output   -- spi output
+spi_master_sw_sck_direction = output   -- spi clock
+include spi_master_sw
+spi_master_sw_init(SPI_MODE_00)          ; init spi, choose mode
+alias spi_master_hw is spi_master_sw     ; ATENCIÓN!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+alias spi_master_hw_exchange is spi_master_sw_exchange
+; ------------------------------------------------------------
+alias nrf24_ce_pin is pin_b3                        ; B.3 maneja al pin CE del módulo
+alias nrf24_ce_pin_direction is pin_b3_direction
+nrf24_ce_pin_direction = output
+alias nrf24_csn_pin is pin_b5                        ; B.5 maneja al pin CSN del módulo
+alias nrf24_csn_pin_direction is pin_b5_direction
+nrf24_csn_pin_direction = output
+alias spi_master_exchange is spi_master_sw_exchange
+nrf24_ce_pin = low
+nrf24_csn_pin = high
+delay_1ms(10)
+alias nrf24_irq_pin is pin_a5                        ; A.5 recibe la salida IRQ del módulo
+alias nrf24_irq_pin_direction is pin_a5_direction
+nrf24_irq_pin_direction = input
+const byte tamanio_rf_data = 8      ; definir el tamaño del arreglo, debe ser IGUAL en el otro firmware (Tx y/o Rx)
+include nrf24l01_traducido_desde_C_v3
+; -------------------------------------------------------------------------------------------------------------
+
+
+alias  led       is pin_b6
+pin_b6_direction = output
+alias  zumbador  is pin_b7
+pin_b7_direction = output
+
+
+alias molex1 is pin_b0
+alias molex2 is pin_a4
+
+pin_b0_direction = output
+pin_a4_direction = input
+
+
+nrf24_csn_pin_direction = output      ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+delay_1ms(5)
+RF_CONFIG(0x40,10)                    ; Configurar módulo RF (canal y dirección).
+RF_ON()                               ; Activar el módulo RF.
+delay_1ms(5)
+nrf24_csn_pin_direction = output     ; PARA CORREGIR FUNCIONAMIENTO ANÓMALO
+
+
+zumbador = on
+delay_100ms(4)
+zumbador = off
+
+
+var byte ind = 0
+var word resul_rf
+
+forever loop
+   led = ON
+   delay_100ms(1)
+   led = OFF
+   delay_100ms(9)
+
+   rf_data[0] = ind
+   ind = ind + 1
+   RF_DIR = 9
+   resul_rf = RF_SEND()
+
+end loop
+
