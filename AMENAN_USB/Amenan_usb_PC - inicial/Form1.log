@@ -1,0 +1,6 @@
+Línea 18: la clase SCommLib.SComm del control SComm1 no era una clase de control cargada.
+Línea 21: el nombre de la propiedad _ExtentX de SComm1 no es válido.
+Línea 22: el nombre de la propiedad _ExtentY de SComm1 no es válido.
+Línea 23: el nombre de la propiedad InBufferSize de SComm1 no es válido.
+Línea 24: el nombre de la propiedad OutBufferSize de SComm1 no es válido.
+Línea 25: el nombre de la propiedad OverlappedIO de SComm1 no es válido.
