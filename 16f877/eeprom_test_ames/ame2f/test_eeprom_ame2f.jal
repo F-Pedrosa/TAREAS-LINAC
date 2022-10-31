@@ -1,0 +1,568 @@
+; Firmware para probar el acceso a eeproms en la AME2F
+
+; ----------------------------------------------
+; Biblioteca de definiciones generales básicas.
+include jal_v2_16F877
+; ----------------------------------------------
+; Inclusión biblioteca I2C por hardware
+include i2c_hardware_fep
+; Variables necesarias para la biblioteca, están declaradas en ella.
+;_I2C_bus_speed = 10        equivale a un bus de 1 MHz
+;_I2C_bus_speed = 4         equivale a un bus de 400 KHz
+; cualquier otro valor fija el bus I2C a 100 KHz
+_I2C_bus_speed     = 4
+_I2C_level         = 1       ; <-- establece protocolo I2C
+; ----------------------------------------------
+; Parámetros de uso de la USART interna del F877:
+const USART_HW_Serial     = true     ; True = RS232
+const Serial_HW_Baudrate  = 115_200   ; Definir bps (debe coincidir con la PC)
+; Librería que permite utilizar la USART interna del F877
+include serial_hardware
+
+
+; ------------------------------------------------------------------------------------
+
+; Declaraciones de dirección de pines:
+pin_a4_direction = output      ; esta salida se usa para el MUX (pin B).
+; Declaraciones para los pines del puerto C que tienen funciones específicas
+; (lector eeprom conectado, relé de pila, multiplexor, etc.), y que no son
+; seteados en las librerías relacionadas (I2C, serial HW, etc.).
+pin_c0_direction = output    ; control pin A MUX
+pin_c1_direction = output    ; control relé pila RTC
+pin_c2_direction = input     ; sensado de lector conectado
+pin_c5_direction = output    ; control led testigo y zumbador
+; -------------------
+; Definición de aliases
+var bit mux_b is pin_a4
+; para los pines con usos específicos del puerto C...
+var bit mux_a is pin_c0
+var bit rele_pila_rtc is pin_c1
+var bit lector_conectado is pin_c2
+var bit testigo is pin_c5
+; -------------------
+; Variables globales
+var byte arreglo_rtc[12] = {0,0,0,0,0,0,0,0,0,0,0,0}
+const byte mensaje_set_rtc[] = "Ingrese fecha y hora según YYMMDDHHMMSS :"
+const byte msg_rtc[] = "RTC Maestro: "
+var byte y = 0
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+var byte indice = 0
+var byte dato_desde_pc = 0
+
+; ------------------------------------------------------------------------------------
+; Arreglo de constantes con el byte de ID para cada eeprom dentro del banco
+const byte eeproms[] = { 0b1010_0000, 0b1010_0010, 0b1010_0100, 0b1010_0110, 0b1010_1000, 0b1010_1010, 0b1010_1100, 0b1010_1110 }
+; Lista de tamaños posibles de EEPROMs, en KBytes.
+const word tamanio0 = 4_096
+const word tamanio1 = 8_192
+const word tamanio2 = 16_384
+const word tamanio3 = 32_768
+const word tamanio4 = 65_536
+
+; ----------------------------------------------
+
+; Arreglo de bytes que tendrá el tamaño de las eeprom.
+; Si queda en 0 se entiende que no hay eeprom en esa posición.
+var byte size[] = {0,0,0,0,0,0,0,0}
+; Para direccionado INTERNO de las EEPROMs...
+var word direccion = 0
+; Para valores máximos de la dirección de las eeprom y además posiciones de las eeproms.
+var word tope = 0       ; máxima dirección a usar en UNA eeprom dada
+var byte posicion = 0   ; en cual eeprom corresponde escribir
+var byte ultima = 0     ; y cual es la posición de la última del banco
+; Para el valor leído via ADC desde la pila del RTC
+var byte tension_pila = 0
+; -------------------
+var byte index = 0
+var byte valor = 0
+
+; ================================ PROCEDIMIENTOS NORMALES =================================
+
+; Para convertir un byte en 3 dígitos separados.
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+; Para convertir 3 caracteres en un sólo byte para grabarse en las eeprom.
+function dig2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   _I2C_HW_startbit
+   ; se envía la ID del RTC con LSB en 0...
+   _I2C_HW_put_byte (0b1101_0000)
+   ; y luego el número de registro deseado...
+   _I2C_HW_put_byte (ad)
+   _I2C_HW_stopbit
+   ;------------
+   _I2C_HW_startbit
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   _I2C_HW_put_byte (0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   _I2C_HW_receive_byte ( dato_rtc )
+   _I2C_HW_stopbit
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+; Rutina que escribe un byte al RTC, sin convertirlo a BCD, sino puro.
+procedure writertc ( byte in ad , byte in d ) is
+   _I2C_HW_startbit
+   _I2C_HW_put_byte (0b11010000)
+   _I2C_HW_put_byte (ad)		; dirección registro a escribir
+   _I2C_HW_put_byte (d) 		; poner dato en registro
+   _I2C_HW_stopbit
+end procedure
+procedure escribir_rtc ( byte in ad , byte in d ) is
+   ; Codificar el dato binario a formato BCD, en que
+   ; almacena los datos el RTC.
+   var byte loc
+   loc = d
+   loc = loc / 10
+   loc = loc * 16
+   d = d % 10
+   loc = loc + d
+   d = loc
+   writertc ( ad , d )
+end procedure
+
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+end procedure
+
+function leer_eeprom( byte in eepr_pos, word in address ) return byte is
+   var byte dato_leido = 0
+   var byte AX[2] at address
+   var bit resultado = false
+   ; primero, enviar el id de la EEPROM
+   _I2C_HW_startbit
+   resultado = _I2C_HW_transmit_byte(eepr_pos)
+   ; byte alto dirección
+   resultado = _I2C_HW_transmit_byte(AX[1])
+   ; byte bajo dirección
+   resultado = _I2C_HW_transmit_byte(AX[0])
+   _I2C_HW_restartbit
+   ; bit de R/W a 1 y enviar
+   resultado = _I2C_HW_transmit_byte( eepr_pos | 0b0000_0001)
+   ; leer byte devuelto por la EEPROM...
+   _I2C_HW_receive_byte(dato_leido)
+   _I2C_HW_stopbit
+   return dato_leido
+end function
+
+procedure escribir_eeprom ( byte in eepr_pos, word in address, byte in dato ) is
+   var byte AX[2] at address
+   _I2C_HW_startbit
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   _I2C_HW_put_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   _I2C_HW_put_byte(AX[1])
+   _I2C_HW_put_byte (AX[0])
+   ; grabar datos en eeprom
+   _I2C_HW_put_byte(dato)
+   _I2C_HW_stopbit
+   delay_1ms(4)
+end procedure
+
+; Rutina para escribir N bytes en determinada EEPROM.
+procedure escribir_trama_eeprom( byte in eepr_pos, word in address ) is
+   var byte indice = 0
+   var byte AX[2] at address
+   var byte y = 1
+
+   _I2C_HW_startbit
+   ; primero, enviar el id de la EEPROM (su dirección específica y bit R/W)
+   _I2C_HW_put_byte(eepr_pos)
+   ; enviar dirección donde escribir
+   _I2C_HW_put_byte(AX[1])
+   _I2C_HW_put_byte (AX[0])
+   ; Enviar "página" de bytes (datos) a grabar en eeprom
+   for 20 using y loop
+      _I2C_HW_put_byte(y)
+   end loop
+   _I2C_HW_stopbit
+end procedure
+
+; Detección de presencia de eeproms en el banco
+function existe_eeprom( byte in pos ) return bit is
+   var byte dato_nuevo = 0
+   var byte dato_orig
+   var bit existe
+   ; Guardar byte original contenido en dirección 0
+   dato_orig = leer_eeprom ( pos , 0 )
+   ; escribir 170 en dicha dirección
+   escribir_eeprom ( pos , 0 , 170 )
+   ; leer de nuevo dirección 0
+   dato_nuevo = leer_eeprom ( pos , 0 )
+   if dato_nuevo == 170 then
+      existe = true
+      ; restaurar dato original dirección 0
+      escribir_eeprom ( pos , 0 , dato_orig )
+   else
+      existe = false
+   end if
+   return existe
+end function
+
+;Rutina para verificar el tamaño de la eeprom indicada (en parámetro "pos")
+function es_tamanio( byte in pos, word in taman ) return bit is
+   var byte temp, dato_final
+   ; Leer la dirección 0 de la eeprom indicada
+   temp = leer_eeprom ( pos , 0 )
+   ; Leer la supuesta última + 1 dirección
+   dato_final = leer_eeprom ( pos , taman )
+   ; Si es igual al valor de la posición 0...
+   if dato_final == temp then
+      ; escribir valor original más 1 en la posición 0
+      escribir_eeprom ( pos , 0 , temp + 1 )
+      ; Leer la supuesta última + 1 posición
+      dato_final = leer_eeprom( pos, taman )
+      ; Si son iguales, se leyó la 1ra dirección (comportamiento fall-back)
+      if dato_final == ( temp + 1 ) then
+         ; Reescribir valor original
+         escribir_eeprom ( pos , 0 , temp )
+         return true
+      else
+         ; Reescribir valor original
+         escribir_eeprom ( pos , 0 , temp )
+      end if
+   else
+      return false
+   end if
+end function
+
+; Rutina que barre las 8 posiciones del banco y descubre la presencia y el
+; tamaño de las eeproms presentes.
+procedure detectar_eeproms is
+   var bit exist = false, resulta = false
+   var byte posic = 0
+   for count(eeproms) using posic loop
+       exist = existe_eeprom( eeproms[posic] )
+       if exist then
+          resulta = es_tamanio( eeproms[posic], tamanio0 )
+          if resulta then
+             size[posic] = 4
+          else
+             resulta = es_tamanio( eeproms[posic], tamanio1 )
+             if resulta then
+                size[posic] = 8
+             else
+                resulta = es_tamanio( eeproms[posic], tamanio2 )
+                if resulta then
+                   size[posic] = 16
+                else
+                   resulta = es_tamanio( eeproms[posic], tamanio3 )
+                   if resulta then
+                      size[posic] = 32
+                   else
+                      size[posic] = 64
+                   end if
+                end if
+             end if
+          end if
+       end if
+    end loop
+end procedure
+
+; Rutina para detectar la última eeprom colocada en el banco.
+procedure ultima_eeprom is
+  if existe_eeprom( eeproms[7] ) then
+     ultima = eeproms[7]
+  elsif existe_eeprom( eeproms[6] ) then
+     ultima = eeproms[6]
+  elsif existe_eeprom( eeproms[5] ) then
+     ultima = eeproms[5]
+  elsif existe_eeprom( eeproms[4] ) then
+     ultima = eeproms[4]
+  elsif existe_eeprom( eeproms[3] ) then
+     ultima = eeproms[3]
+  elsif existe_eeprom( eeproms[2] ) then
+     ultima = eeproms[2]
+  elsif existe_eeprom( eeproms[1] ) then
+     ultima = eeproms[1]
+  elsif existe_eeprom( eeproms[0] ) then
+     ultima = eeproms[0]
+  end if
+end procedure
+
+; Rutina usada por el siguiente procedure, parte del proceso de detección de
+; presencias, tamaños y orden de escritura.
+procedure asignar_tamanio ( byte in val ) is
+   posicion = eeproms[val]
+   if size[val] == 4 then
+      tope = 4_096
+   elsif size[val] == 8 then
+      tope = 8_192
+   elsif size[val] == 16 then
+      tope = 16_384
+   elsif size[val] == 32 then
+      tope = 32_768
+   elsif size[val] == 64 then
+      tope = 65_535
+   end if
+   size[val] = 0
+end procedure
+
+; Rutina para determinar cual es la primera EEPROM disponible
+; y cuál es la que sigue en orden. Invocarlo cada vez que se llega al final
+; de cada eeprom, para apuntar a la siguiente
+procedure cual_eeprom_escribir is
+   if (size[0] != 0) then
+      asignar_tamanio(0)
+   elsif (size[1] != 0) then
+      asignar_tamanio(1)
+   elsif (size[2] != 0) then
+      asignar_tamanio(2)
+   elsif (size[3] != 0) then
+      asignar_tamanio(3)
+   elsif (size[4] != 0) then
+      asignar_tamanio(4)
+   elsif (size[5] != 0) then
+      asignar_tamanio(5)
+   elsif (size[6] != 0) then
+      asignar_tamanio(6)
+   elsif (size[7] != 0) then
+      asignar_tamanio(7)
+   end if
+end procedure
+
+
+procedure inicializar_interfaces_serie is
+  ; Inicializar la USART interna del 16F877
+  Serial_HW_init
+end procedure
+
+; Rutina para enviar un retorno de carro y fin de línea via RS232...
+procedure CR_LF is
+   Serial_HW_Write(13)
+   Serial_HW_Write(10)
+end procedure
+
+
+; ******************************************************************************************
+; ======================================= PRINCIPAL ========================================
+; ******************************************************************************************
+
+; Si está conectado el lector de eeprom, apagar el micro. ¡Esta rutina DEBE SER
+; la primera en ejecutarse!
+;lector_conectado
+; -------------------------------------------------------------------------------
+; Si el lector de eeprom NO está conectado, a partir de este punto comienzan
+; las inicializaciones y chequeos de un funcionamiento normal.
+; -------------------------------------------------------------------------------
+; Deshabilitarlo ADC
+ADC_off
+;---------
+; inicialización del bus I2C
+_I2C_HW_initialize
+;---------
+; Establecer estado inicial correcto conexiones serie (esencialmente pines).
+inicializar_interfaces_serie
+;---------
+; Asegurarse que los pines de salida estén en 0
+mux_a = off
+mux_b = off
+rele_pila_rtc = off
+testigo = off
+
+; dejar seteado el MUX para que deje pasar la señal que viene
+; desde el conector molex de 8 pines (el de entradas analógicas).
+mux_a = off
+mux_b = on
+
+;---------
+; Encendido y apagado del led/zumbador testigo de arranque.
+testigo = on
+delay_100ms( 20 )
+testigo = off
+delay_100ms( 20 )
+;---------
+
+forever loop
+; --------------------------------------------------------------------------------
+  ; Recepción de comandos desde la PC, y envío comandos a los esclavos
+  if Serial_HW_read(dato_desde_pc) then
+     if dato_desde_pc == "1" then
+        ; si es "1" enviar OK hacia la PC
+        Serial_HW_Write("O")
+        Serial_HW_Write("K")
+        CR_LF
+        Serial_HW_Write("@")
+;-------------------------------------------------------------------------------
+  ; Escribir 20 bytes en las posiciones iniciales de la 1ra eeprom
+     elsif dato_desde_pc == "w" then
+        escribir_trama_eeprom( eeproms[0], 0 )
+;-------------------------------------------------------------------------------
+     ; leer fecha y hora del RTC y enviarlos a la P..org.ar
+     C
+     elsif dato_desde_pc == "z" then
+        CR_LF
+        for count(msg_rtc) using y loop
+            Serial_HW_Write(msg_rtc[y])
+        end loop
+        ; leer datos del RTC
+        obtener_fecha_hora
+        bin2digits(digi2,digi1,digi0,anio)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write("/")
+        bin2digits(digi2,digi1,digi0,mes)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write("/")
+        bin2digits(digi2,digi1,digi0,dia)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write("-")
+        bin2digits(digi2,digi1,digi0,hora)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write(":")
+        bin2digits(digi2,digi1,digi0,minuto)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write(":")
+        bin2digits(digi2,digi1,digi0,segundo)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        CR_LF
+;-------------------------------------------------------------------------------
+     ; Bloque de puesta en hora del RTC del maestro
+     elsif dato_desde_pc == "t" then
+        ; enviar mensaje aclaratorio
+        for count(mensaje_set_rtc) using y loop
+           Serial_HW_Write(mensaje_set_rtc[y])
+        end loop
+        y = 0
+        ; recibir string con fecha y hora desde la PC
+        ; de la forma: YYMMDDHHMMSS, y terminada con la letra "p"
+        while dato_desde_pc != "p" loop
+           if Serial_HW_read(dato_desde_pc) then
+              if dato_desde_pc != "p" then
+                 arreglo_rtc[y] = (dato_desde_pc - 48)
+                 ; hacer un eco de lo recibido, hacia la PC, como chequeo visual
+                 Serial_HW_Write(dato_desde_pc)
+                 y = y + 1
+              else
+                 Serial_HW_Write(dato_desde_pc)
+              end if
+           end if
+        end loop
+        Serial_HW_Write(10)
+        y = 0
+        ; convertir los elementos del string recibido en bytes
+        ; para luego grabarlos en el RTC.
+        anio = dig2bin(0,arreglo_rtc[0],arreglo_rtc[1])
+        mes = dig2bin(0,arreglo_rtc[2],arreglo_rtc[3])
+        dia = dig2bin(0,arreglo_rtc[4],arreglo_rtc[5])
+        hora = dig2bin(0,arreglo_rtc[6],arreglo_rtc[7])
+        minuto = dig2bin(0,arreglo_rtc[8],arreglo_rtc[9])
+        segundo = dig2bin(0,arreglo_rtc[10],arreglo_rtc[11])
+        ; setear RTC con la fecha y hora recién recibidos y convertidos
+        escribir_rtc ( 6 , anio )
+        escribir_rtc ( 5 , mes )
+        escribir_rtc ( 4 , dia )
+        escribir_rtc ( 2 , hora )
+        escribir_rtc ( 1 , minuto )
+        escribir_rtc ( 0 , segundo )
+        ; devolver a la PC un string con el nuevo contenido del RTC, como verificación
+        CR_LF
+        y = 0
+        for count(msg_rtc) using y loop
+            Serial_HW_Write(msg_rtc[y])
+        end loop
+        ; leer datos del RTC
+        obtener_fecha_hora
+        ; convertir a caracteres y enviar
+        bin2digits(digi2,digi1,digi0,anio)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write("/")
+        bin2digits(digi2,digi1,digi0,mes)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write("/")
+        bin2digits(digi2,digi1,digi0,dia)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write("-")
+        bin2digits(digi2,digi1,digi0,hora)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write(":")
+        bin2digits(digi2,digi1,digi0,minuto)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        Serial_HW_Write(":")
+        bin2digits(digi2,digi1,digi0,segundo)
+        Serial_HW_Write(digi1+48)
+        Serial_HW_Write(digi0+48)
+        CR_LF
+     end if
+;-------------------------------------------------------------------------------
+  end if
+end loop
