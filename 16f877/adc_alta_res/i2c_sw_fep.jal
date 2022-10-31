@@ -1,0 +1,186 @@
+; Librería ad-hoc que implementa el protocolo I2C (para comunicarse con el RTC
+; y las EEPROMs) por software, debido a lo problemas encontrados en el uso
+; del hardware I2C incluido en el 16F877.
+
+; Pines Usados
+;    PIC           I2C
+; ----------- --------------
+;  18  C.3       SCL (clock)
+;  23  C.4       SDA (data)
+; ----------- --------------
+
+; Los comentarios de las rutinas siguientes son en general bastante electrónicos
+; debido a la naturaleza del sistema y la librería.
+
+var bit SCL is pin_c3
+var bit SDA is pin_c4
+
+; Retardo para que se estabilice las líneas (uso interno solamente)
+procedure _i2c_wait is
+   for 12 loop
+       delay_1uS
+   end loop
+end procedure
+
+; El valor de salida es siempre bajo (0), las líneas se manejan tipo
+; colector abierto ( puesto como entrada la línea se pone a 5Vdc)
+; con los registros de dirección.
+procedure _i2c_init is
+   ; SCL a bajo y luego como salida
+   SCL = off
+   pin_c3_direction = output
+   ; SDA a bajo y luego como salida
+   SDA = off
+   pin_c4_direction = output
+end procedure
+
+; Generar condición de arranque en el bus I2C
+procedure i2c_put_start is
+   _i2c_wait
+	 ; Alta impedancia poniendo SDA como entrada
+	 ; esto pone a SDA en 5 V, por las Rs de pull-up
+   pin_c4_direction = input
+   _i2c_wait
+   ; SCL (clock) a alto, por lo mismo dicho para SDA
+   pin_c3_direction = input
+   _i2c_wait
+   ; SDA a bajo, primero escribir 0 y luego poner como salida
+   SDA = off
+   pin_c4_direction = output
+   _i2c_wait
+   ; SCL a bajo, primero escribir 0 y luego poner como salida
+   SCL = off
+   pin_c3_direction = output
+   _i2c_wait
+end procedure
+
+; Generar condición de parada en el bus I2C
+procedure i2c_put_stop is
+   _i2c_wait
+   ; SDA a bajo, primero escribir 0 y luego poner como salida
+   SDA = off
+   pin_c4_direction = output
+   _i2c_wait
+   ; SCL a bajo, primero escribir 0 y luego poner como salida
+   SCL = off
+   pin_c3_direction = output
+   _i2c_wait
+   ; SCL a alto
+   pin_c3_direction = input
+   _i2c_wait
+   ; SDA a alto
+   pin_c4_direction = input
+   _i2c_wait
+end procedure
+
+; Definir estado inicial de las líneas I2C
+; Esto COMO NO ES un procedure, se va a ejecutar SIEMPRE
+; que se incluya la librería fep_i2c.jal
+_i2c_init
+i2c_put_stop
+_i2c_wait
+
+
+; Enviar un bit (uso interno)
+procedure _i2c_bit_out( bit in x ) is
+   _i2c_wait
+   if x then
+      ; SDA a alto
+      pin_c4_direction = input
+   else
+      ; SDA a bajo, primero poner 0 y luego como salida
+      SDA = off
+      pin_c4_direction = output
+   end if
+   _i2c_wait
+   ; SCL a alto
+   pin_c3_direction = input
+   _i2c_wait
+   while SCL == low loop     ; esperar por perif. lentos
+   end loop
+   _i2c_wait
+   ; SCL a bajo
+   SCL = off
+   pin_c3_direction = output
+   _i2c_wait
+end procedure
+
+; Leer un bit (uso interno)
+procedure _i2c_bit_in( bit out x ) is
+   _i2c_wait
+   ; SDA a alto
+   pin_c4_direction = input
+   _i2c_wait
+   ; SCL a alto
+   pin_c3_direction = input
+   _i2c_wait
+   while SCL == low loop   ; espera perifs. lentos
+   end loop
+   _i2c_wait
+   x = SDA                 ; leer dato
+   _i2c_wait
+   ; SCL a bajo
+   SCL = off
+   pin_c3_direction = output
+   _i2c_wait
+end procedure
+
+; Esperar un ACK
+procedure i2c_wait_ack is
+   _i2c_wait
+   ; SDA a alto
+   pin_c4_direction = input
+   _i2c_wait
+   ; SCL a alto
+   pin_c3_direction = input
+   _i2c_wait
+   while SCL == low loop   ; esperar...
+   end loop
+   ; Se podría agregar aquí un chequeo del ACK desde
+   ; el esclavo (data debería ser bajo).
+   _i2c_wait
+   ; SCL a bajo
+   SCL = off
+   pin_c3_direction = output
+   _i2c_wait
+end procedure
+
+; Enviar un ACK
+procedure i2c_put_ack is
+   _i2c_bit_out( low )
+end procedure
+
+; Enviar un NACK
+procedure i2c_put_nack is
+   _i2c_bit_out( high )
+end procedure
+
+; Enviar un NACK y un STOP
+procedure i2c_put_nack_stop is
+   i2c_put_nack
+   i2c_put_stop
+end procedure
+
+; Enviar un ACK y un STOP
+procedure i2c_put_ack_stop is
+   i2c_put_ack
+   i2c_put_stop
+end procedure
+
+; Enviar 1 byte al bus I2C
+procedure i2c_put_data( byte in x ) is
+   var bit b at x : 7
+   for 8 loop
+      _i2c_bit_out( b )
+      x = x << 1
+   end loop
+end procedure
+
+; Leer 1 byte del bus I2C
+procedure i2c_get_data( byte out x ) is
+   var bit b at x : 0
+   for 8 loop
+      x = x << 1
+      _i2c_bit_in( b )
+   end loop
+end procedure

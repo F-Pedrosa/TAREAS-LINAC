@@ -1,0 +1,325 @@
+; Firmware de ejemplo para guardado en EEPROM interna del PIC registros
+; y para leerlos desde la PC a través de la conexión RS232.
+
+; Biblioteca de definiciones generales básicas.
+include jal_v2_16F877
+; Librería para acceder al RTC y a EEPROM externas
+include i2c_sw_fep
+
+; Parámetros de uso de la USART interna del F877:
+const USART_HW_Serial     = true     ; True = RS232
+; Definir bps (debe coincidir con la PC), se ha verificado experimentalmente que se tiene una
+; comunicación correcta hasta con velocidades de 115200 bps (cable de no más de un par de mts).
+const Serial_HW_Baudrate  = 115_200
+; Librería que permite utilizar la USART interna del F877
+include serial_hardware
+
+; 2 salidas para controlar cargas mediante plaquetas lejanas
+pin_d0_direction = output
+pin_d1_direction = output
+
+pin_b7_direction = output
+pin_d0_direction = output
+
+
+; y sus alias
+var bit salida1 is pin_d0
+var bit salida2 is pin_d1
+
+var bit testigo is pin_b7
+var bit rele_pila is pin_d1
+
+
+var byte numero_orden = 0
+
+var byte registro[10] = {0,0,0,0,0,0,0,0,0,0}
+
+var byte registro_salida[10] = {0,0,0,0,0,0,0,0,0,0}
+
+var byte direccion = 0
+var byte direccion_lectura = 0
+
+; ********************** SUBRUTINAS *******************************
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte datortc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   ;------------
+   i2c_put_start
+   i2c_put_data( 0b1101_0000 ) ; con el LSB puesto a 0 - escritura
+   i2c_wait_ack
+   i2c_put_data( ad )        ; registro a leer
+   i2c_wait_ack
+   i2c_put_stop
+   ;------------
+   i2c_put_start
+   i2c_put_data ( 0b11010001 ) ; ID modo lectura - LSB en 1
+   i2c_wait_ack
+   i2c_get_data ( datortc ) 	    ; Leer dato
+   i2c_put_nack
+   i2c_put_stop
+   ;------------
+   loc = datortc
+   loc2 = datortc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+; Para convertir un byte en 3 dígitos separados.
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+
+   var byte centena = 0
+   var byte decena = 0
+
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+
+end procedure
+
+procedure armar_registro is
+
+   var byte digi2 = 0
+   var byte digi1 = 0
+   var byte digi0 = 0
+   var byte segundos = 0
+   var byte minutos = 0
+   var byte horas = 0
+   var byte dia = 0
+   var byte mes = 0
+   var byte anio = 0
+   var byte dato = 0
+
+   leer_rtc( 0, digi1, digi0 )          ; segundos
+   digi1 = digi1 * 10
+   segundos = digi1 + digi0
+   leer_rtc(1,digi1,digi0)              ; minutos
+   digi1 = digi1 * 10
+   minutos = digi1 + digi0
+   leer_rtc(2,digi1,digi0)              ; horas
+   digi1 = digi1 * 10
+   horas = digi1 + digi0
+   leer_rtc(4,digi1,digi0)              ; dia
+   digi1 = digi1 * 10
+   dia = digi1 + digi0
+   leer_rtc(5,digi1,digi0)              ; mes
+   digi1 = digi1 * 10
+   mes = digi1 + digi0
+   leer_rtc(6,digi1,digi0)              ; año
+   digi1 = digi1 * 10
+   anio = digi1 + digi0
+
+   dato = ADC_read_low_res(0)
+   bin2digits(digi2,digi1,digi0,dato)
+
+   registro[0] = numero_orden
+   registro[1] = anio
+   registro[2] = mes
+   registro[3] = dia
+   registro[4] = horas
+   registro[5] = minutos
+   registro[6] = segundos
+   registro[7] = digi2
+   registro[8] = digi1
+   registro[9] = digi0
+
+end procedure
+
+procedure escribir_registro_eeprom_interna is
+   var byte y = 0
+   
+   for count(registro) using y loop
+       if direccion < 255 then
+          Data_EEprom_Write(direccion,registro[y])
+          direccion = direccion + 1
+       end if
+   end loop
+end procedure
+
+
+
+; Para convertir un word en 4 dígitos separados.
+procedure word2digits( byte out dig3, byte out dig2, byte out dig1, byte out dig0, word in numero ) is
+
+   var byte miles = 0
+   var byte centena = 0
+   var byte decena = 0
+
+   miles = numero / 1000
+   dig3 = miles
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+
+end procedure
+
+
+function leer_eeprom_interna (byte in direccion) return byte is
+   var byte dato = 0
+   dato = Data_EEprom(direccion)
+   return dato
+end function
+
+; Rutina para enviar un retorno de carro y fin de línea via RS232...
+procedure CR_LF is
+   Serial_HW_Write(13)
+   Serial_HW_Write(10)
+end procedure
+
+
+procedure ADC_read_bytes(byte in ADC_chan, byte out ADC_Hbyte, byte out ADC_Lbyte) is
+var word AD_value
+var byte AX[2] at AD_value
+  AD_value = ADC_read(ADC_chan)
+  ADC_Hbyte = AX[1]
+  ADC_Lbyte = AX[0]
+end procedure
+
+procedure leer_registro_enviar is
+   var byte y = 0
+   var byte digi2 = 0
+   var byte digi1 = 0
+   var byte digi0 = 0
+   ; leer la eeprom interna y cargar registro
+   for 10 using y loop
+       registro_salida[y] = leer_eeprom_interna(direccion_lectura)
+       if direccion_lectura == 255 then
+          direccion_lectura = 0
+       else
+          direccion_lectura = direccion_lectura + 1
+       end if
+   end loop
+   ; enviar via RS232 a la PC
+   bin2digits(digi2,digi1,digi0,registro_salida[0])
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("-")
+   Serial_HW_Write("-")
+   bin2digits(digi2,digi1,digi0,registro_salida[1])
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("/")
+   bin2digits(digi2,digi1,digi0,registro_salida[2])
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("/")
+   bin2digits(digi2,digi1,digi0,registro_salida[3])
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("-")
+   Serial_HW_Write("-")
+   bin2digits(digi2,digi1,digi0,registro_salida[4])
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write(":")
+   bin2digits(digi2,digi1,digi0,registro_salida[5])
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write(":")
+   bin2digits(digi2,digi1,digi0,registro_salida[6])
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("-")
+   Serial_HW_Write("-")
+   Serial_HW_Write(registro_salida[7]+48)
+   Serial_HW_Write(registro_salida[8]+48)
+   Serial_HW_Write(registro_salida[9]+48)
+
+   CR_LF
+
+end procedure
+
+
+; ======================================= PRINCIPAL =======================================
+rele_pila = off
+; Activar el convertidor A/D del puerto A
+Adc_on
+; Inicializar la USART interna del 16F877
+Serial_HW_init
+
+testigo = on
+delay_100ms(10)
+testigo = off
+
+forever loop
+
+   var byte data = 0
+   var byte y = 0
+
+   var byte digi3 = 0
+   var byte digi2 = 0
+   var byte digi1 = 0
+   var byte digi0 = 0
+
+   var word datazo = 0
+   var byte alto = 0
+   var byte bajo = 0
+
+   ; si llega el pedido desde la PC, leer registro(s) y enviar
+   if Serial_HW_read(data) then
+      ; leer
+      if data == "a" then
+         armar_registro
+         escribir_registro_eeprom_interna
+         leer_registro_enviar
+      ; si llega "b" hacer una conversión A/D de 12 bits y enviar a PC
+      elsif data == "b" then
+           datazo = ADC_read(0)
+           word2digits(digi3,digi2,digi1,digi0,datazo)
+           Serial_HW_Write(digi3+48)
+           Serial_HW_Write(digi2+48)
+           Serial_HW_Write(digi1+48)
+           Serial_HW_Write(digi0+48)
+           CR_LF
+      elsif data == "c" then
+           datazo = ADC_read_low_res(0)
+           bin2digits(digi2,digi1,digi0,datazo)
+           Serial_HW_Write(digi2+48)
+           Serial_HW_Write(digi1+48)
+           Serial_HW_Write(digi0+48)
+           CR_LF
+      elsif data == "d" then
+           ADC_read_bytes(0,alto,bajo)
+           bin2digits(digi2,digi1,digi0,alto)
+           Serial_HW_Write(digi2+48)
+           Serial_HW_Write(digi1+48)
+           Serial_HW_Write(digi0+48)
+           Serial_HW_Write(":")
+           bin2digits(digi2,digi1,digi0,bajo)
+           Serial_HW_Write(digi2+48)
+           Serial_HW_Write(digi1+48)
+           Serial_HW_Write(digi0+48)
+           CR_LF
+      elsif data == "e" then
+           word2digits(digi3,digi2,digi1,digi0,1020)
+           Serial_HW_Write(digi3+48)
+           Serial_HW_Write(digi2+48)
+           Serial_HW_Write(digi1+48)
+           Serial_HW_Write(digi0+48)
+           CR_LF
+      elsif data == "1" then
+           Serial_HW_Write("O")
+           Serial_HW_Write("K")
+           Serial_HW_Write("!")
+           CR_LF
+      end if
+   end if
+
+end loop

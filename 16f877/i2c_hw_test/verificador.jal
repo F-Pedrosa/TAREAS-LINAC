@@ -1,0 +1,63 @@
+; Firmware para probar el hardware interno I2C del 16F877
+
+; Biblioteca de definiciones generales básicas.
+include jal_v2_16F877
+
+; Parámetros de uso de la USART interna del F877:
+const USART_HW_Serial     = true     ; True = RS232
+const Serial_HW_Baudrate  = 115_200   ; Definir bps (debe coincidir con la PC)
+; Librería que permite utilizar la USART interna del F877
+include serial_hardware
+
+; declaraciones de direcciones de los pines a usarse
+pin_b7_direction = output    ; led testigo y zumbador
+pin_d0_direction = output    ; control relé pila RTC
+pin_d1_direction = input     ; sensado de lector conectado
+
+; Aliases de estos pines
+var bit testigo is pin_b7
+var bit rele_pila_rtc is pin_d0
+var bit lector_conectado is pin_d1
+
+
+; strings de los mensajes a ser enviados a la PC serialmente
+const byte mensaje0[] = "PIC AME2 respondiendo..."
+
+; Rutina para enviar un retorno de carro y fin de línea via RS232...
+procedure CR_LF is
+   Serial_HW_Write(13)
+   Serial_HW_Write(10)
+end procedure
+
+; -------------------------- PRINCIPAL ----------------------------------
+; apagar el pin que controla el relé que conecta la pila del RTC al ADC del PIC.
+pin_d0 = off
+
+
+; Inicializar la USART interna del 16F877
+Serial_HW_init
+
+; Encendido y apagado del led/zumbador testigo de arranque.
+testigo = on
+delay_100ms( 10 )
+testigo = off
+
+var byte data = 0
+
+forever loop
+
+    var byte y = 0
+    ; esperar que llegue caracter via RS232 x hard desde la PC...
+    while !Serial_HW_read(data) loop
+    end loop
+
+    if data == "a" then
+       ; si es "a" enviar mensaje de respuesta hacia la PC
+       y = 0
+       for count(mensaje0) using y loop
+          Serial_HW_Write(mensaje0[y])
+       end loop
+       CR_LF
+    end if
+end loop
+

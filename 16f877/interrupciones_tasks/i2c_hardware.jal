@@ -1,0 +1,261 @@
+-- -----------------------------------------------------------------------------
+-- <title I2C hardware control
+-- <License
+-- freeware, under the terms of the BSD-license
+--  Copyright (C) 2005 Stef Mientki
+-- -----------------------------------------------------------------------------
+-- <Description
+-- I2C hardware control (without interrupts)
+--
+-- This library is heavily based on the I2C_GLIB.JAL form Brett Nelson.
+--   Besides some cosmetic changes, the following important changes were made
+--     - Baudrate is extended with 1 MHz
+--     - Baudrate is calculated for any Target_Clock
+--     - repeat of Tx is limited to 250*, so the PIC will never hang
+--     - slew rate control always enabled (SSPSTAT<7>=0)
+--     - I2C_byte_read_next added
+--     - bank switching is reduced or made faster by assembler
+--     - all settings can be done outside the library
+--     - some procedures are changed into functions
+--     - function read_next_address added
+--     - number of addresses within a devices lowered from 3 to 2
+--     - I2C_device and I2C_last_devices explictly initialized different
+--
+--
+-- <non-tag
+--    function I2C_byte_write
+--    function I2C_byte_read
+--    function I2C_byte_read_next
+--    function I2C_find_device
+--
+-- <Version: 3      ,01-03-2006, Stef Mientki
+--
+-- <Version: 2.1    ,26-01-2006, Stef Mientki
+--   - _I2C_transmit_byte changed to function, TRUE is succeeded
+--   - write retry in _I2C_transmit_byte, lowered from 250 to 10
+--   - I2C_byte_write changed to function, TRUE if succeeded
+--   - all main functions will stop now, when device address fails
+--   - function I2C_find_device added
+--   - bug using more devices: I2C_device was not set in _I2C_start_bit
+--
+-- <Version: 2.0    ,27-12-2005, Stef Mientki
+--   - pJAL compatible
+--
+-- <Version: 1.0    ,3-9-2005, Stef Mientki
+--   - original release
+-- --------------------------------------------------------------------
+
+
+-- -----------------------------------------------------------------------------
+-- <Example JALcc V1.03
+;-- define 2 eeproms 8k*8 on the I2C bus
+;const I2C_bus_levels = false  -- set this false for 5V PIC driving 3V devices
+;<mac> def_I2C_begin
+;--             name    address  #address  speed (kHz)
+;<mac> def_I2C  eeprom1,  $A0,    2,       1000  ;24LC64 8k*8 Fram EEprom
+;<mac> def_I2C  eeprom2,  $A2,    2,       1000  ;24LC64 8k*8 Fram EEprom
+;<mac> def_I2C_end
+;
+;forever loop
+;  data = i2c_byte_read_next(eeprom1)
+;  asynch_send_hw(data)
+;  delay_1ms(10)
+;end loop
+-- --------------------------------------------------------------------
+
+
+-- <code
+
+
+-- --------------------------------------------------------------------
+-- some constants needed for the baudrate generator
+-- --------------------------------------------------------------------
+const _I2C_100kHz = (target_clock / (4 * 100_000)) - 1
+const _I2C_400kHz = (target_clock / (4 * 400_000)) - 1
+const _I2C_1MHz   = (target_clock / (4 * 1000_000)) - 1
+-- --------------------------------------------------------------------
+
+var bit  _I2C_level
+var byte _I2C_bus_speed
+
+-- --------------------------------------------------------------------
+-- if the device has changed, change the speed if necessary
+-- --------------------------------------------------------------------
+procedure _I2C_HW_initialize is
+  -- set correct speed
+  if    _I2C_bus_speed == 10 then sspadd = _I2C_1MHz
+  elsif _I2C_bus_speed == 4  then sspadd = _I2C_400kHz
+  else                            sspadd = _I2C_100kHz
+  end if
+  
+  -- set correct level
+  -- SMP-bit7 = 0, slew rate enabled, better for EMC
+  if _I2C_level then
+    sspstat = 0b_0000_0000   ;I2C bus levels, CKE=0
+  else
+    sspstat = 0b_0100_0000   ;SMbus levels, CKE=1
+  end if
+end procedure
+-- -----------------------------------------------------------------------------
+
+
+
+-- -----------------------------------------------------------------------------
+-- Initializes the I2C bus (if necessary) and
+-- Sends Start bit and waits untill finished
+-- -----------------------------------------------------------------------------
+procedure _I2C_HW_startbit is
+   -- send start bit and wait until start sequence is complete
+  sen = high
+  while sen == high loop end loop
+end procedure
+-- -----------------------------------------------------------------------------
+
+
+-- -----------------------------------------------------------------------------
+-- Sends Restart bit and waits untill finished
+-- -----------------------------------------------------------------------------
+procedure _I2C_HW_restartbit is
+  rsen = high
+  while rsen == high loop end loop
+end procedure
+-- -----------------------------------------------------------------------------
+
+
+-- -----------------------------------------------------------------------------
+-- Sends Stop bit and waits until finished
+-- -----------------------------------------------------------------------------
+procedure _I2C_HW_stopbit is
+  pen = high
+  while pen == high loop end loop
+end procedure
+-- -----------------------------------------------------------------------------
+
+procedure _I2C_HW_put_byte( byte in data) is
+    sspif = false
+    sspbuf = data
+    while ! sspif loop end loop
+    sspif = false
+end procedure
+
+procedure _I2C_HW_get_byte( byte out data) is
+  -- start receive cyclus and wait till full byte received
+  rcen = high
+  while bf == low loop  end loop
+
+  -- get read data
+  data = sspbuf
+end procedure
+
+procedure _I2C_HW_ack is
+  -- send Acknowledge and wait till finishd
+  ackdt = low
+  acken = high
+  while acken == high loop end loop
+end procedure
+
+procedure _I2C_HW_nack is
+  -- send Acknowledge and wait till finishd
+  ackdt = high
+  acken = high
+  while acken == high loop end loop
+end procedure
+
+
+
+
+-- -----------------------------------------------------------------------------
+-- Transmits a byte and waits untill finished
+-- Returns true if succeeded.
+-- If there is no acknowledge after the transmission.
+-- the byte is resend upto 10 times
+-- This procedure is especially usefull in writing bytes,
+-- because a write takes 5 .. 10 msec (except for Fram: no delay)
+-- At 1 MHz a byte takes about 20 usec, so in that case the maximum
+-- write-delay is 10 * 20 usec = 200 usek
+-- At the lower frequencies of 100 kHz and 400 kHz, there's always
+-- a minimum write delay of 10 msec.
+-- -----------------------------------------------------------------------------
+function _I2C_HW_transmit_byte (byte in data) return bit is
+
+var byte timeout_counter = 10
+var bit ready = false
+
+  while ! ready loop
+    -- (re-)start transmission by placing data in sspbuf
+    sspbuf = data
+
+    -- wait untill write is finished:  _R_W =0
+    -- we can also wait for SSPIF, so we don't need bank switching
+    ;    bank_1
+    ;    while _r_w == high loop end loop
+    sspif = false
+    while ! sspif loop end loop
+
+    -- get Acknowledge Status Bit _ACKSTAT
+    -- wich indicates that the slave has responded (or not)
+    -- if I2C device send an Aknowledge, then ready and OK
+    if ackstat == low  then
+      ready = true
+      return true
+    else
+      -- as long as no timeout, try again
+      timeout_counter = timeout_counter - 1
+      if timeout_counter > 0 then
+        -- send restart bit
+        _I2C_HW_restartbit
+      else
+        ready = true
+        return false
+      end if
+    end if
+  end loop
+end function
+-- -----------------------------------------------------------------------------
+
+
+
+-- -----------------------------------------------------------------------------
+-- start receiving of a byte and waits till finished
+-- -----------------------------------------------------------------------------
+procedure _I2C_HW_receive_byte ( byte out data ) is
+  -- start receive cyclus and wait till full byte received
+  rcen = high
+  while bf == low loop  end loop
+
+  -- send Acknowledge and wait till finishd
+  acken = high
+  while acken == high loop end loop
+
+  -- get read data
+  data = sspbuf
+end procedure
+-- -----------------------------------------------------------------------------
+
+
+
+;-- -----------------------------------------------------------------------------
+;-- One time initialize
+;-- -----------------------------------------------------------------------------
+;if I2C_hw != no_I2C_port then
+;if I2C_port == I2C_HW then
+  -- I2C requires to set TRIS bits to input
+  -- so to be sure ...
+  pin_c3_direction = input
+  pin_c4_direction = input
+
+  sspcon  = 0b0010_1000   -- set up 16f87x as master device
+  sspcon2 = 0b0010_0000   -- sets default acknowledge bit value
+;end if
+-- -----------------------------------------------------------------------------
+
+
+-- --------------------------------------------------------------------
+-- Library ID
+-- --------------------------------------------------------------------
+const word I2C_hardware_ID = 8
+const word I2C_hardware_version = 3
+if Ask_Library_IDentity then
+  my_identity (I2C_hardware_ID, I2C_hardware_version)
+end if
+-- --------------------------------------------------------------------

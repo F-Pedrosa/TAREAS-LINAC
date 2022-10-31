@@ -1,0 +1,200 @@
+; Firmware para probar interrupciones del 16F877, específicamente la de Timer0.
+
+; Biblioteca de definiciones generales básicas.
+include jal_v2_16F877
+
+; Parámetros de uso de la USART interna del F877:
+const USART_HW_Serial     = true     ; True = RS232
+const Serial_HW_Baudrate  = 115_200   ; Definir bps (debe coincidir con la PC)
+; Librería que permite utilizar la USART interna del F877
+include serial_hardware
+
+; Inclusión biblioteca I2C por hardware, por el momento SÓLO funciona con el RTC
+include i2c_hardware
+; Variables necesarias para la biblioteca, están declaradas en ella, seteadas aquí.
+; |------------------------|--------------------------------|
+; | _I2C_bus_speed = 10    | equivale a un bus de 1 MHz     |
+; |------------------------|--------------------------------|
+; | _I2C_bus_speed = 4     | equivale a un bus de 400 KHz   |
+; |------------------------|--------------------------------|
+; | cualq. otro valor      | equival a bus I2C a 100 KHz    |
+; |------------------------|--------------------------------|
+_I2C_bus_speed     = 4     ; con más que esto el RTC no responde
+_I2C_level         = 1
+; inicialización del bus I2C
+_I2C_HW_initialize
+
+
+; declaraciones de direcciones de algunos pines a usarse
+pin_d0_direction = output     ; este es el control del relé de la pila del RTC
+pin_b7_direction = output     ; el testigo (led/zumnbador)
+
+; aliases
+var bit rele_pila_rtc is pin_d0
+var bit testigo is pin_b7
+
+; strings de los mensajes a ser enviados a la PC serialmente
+const byte mensaje0[] = "PIC AME2 respondiendo..."
+
+var byte digi0 = 0
+var byte digi1 = 0
+var byte digi2 = 0
+
+; ============================ PROCEDIMIENTO INTERRUPCIÓN TIMER0 =============================
+; Fórmula :
+;           TMR0_delay=(256-InitTMR0)*4*prescaler/Fosc
+; se quiere que el TMR0_delay sea de 100 usec.
+; Prescaler = 1:4
+; Fosc = 20_000_000
+; Delay = 0.0001 secs
+; entonces se tiene que el valor InitTMR0 debe ser = 131
+
+; Inicializar TMR0 en modo free run, con oscilador interno y un prescaler de 1:4
+OPTION_REG = 0b_1000_0001
+; Habilitar interrupciones, específicamente la de Timer0 (MUY IMPORTANTE!!!!!!)
+INTCON = 0b_1010_0000
+; valor de inicialización, ver fórmula más arriba
+const byte InitTMR0 = 131
+var word contador
+var bit Flag_tmr0 = false
+
+; rutina interrupción TMR0 propiamente dicha, que se ejecuta cada 100 usegs.
+procedure TMR0_ISR is
+  pragma interrupt
+  if T0if then
+     ; Reset TMR0IF
+     T0if = low
+     ; Reinicializar InitTMR0
+     TMR0 = InitTMR0
+     ; incrementar contador
+     contador = contador + 1
+     ; llegó a 10000?   (10000 x 100 usegs = 1 s)
+     if contador == 10_000 then
+        ; setear bandera de que pasó un segundo
+        Flag_tmr0 = true
+        ; limpiar contador
+        contador = 0
+     end if
+  end if
+end procedure
+
+; ============================================================================================
+
+; Para convertir un byte en 3 dígitos separados.
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte datortc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ; --------
+   _I2C_HW_startbit
+   ; se envía la ID del RTC con LSB en 0...
+   resul = _I2C_HW_transmit_byte (0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = _I2C_HW_transmit_byte (ad)
+   _I2C_HW_stopbit
+   ; --------
+   _I2C_HW_startbit
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = _I2C_HW_transmit_byte (0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   _I2C_HW_receive_byte ( datortc )
+   _I2C_HW_stopbit
+   ; --------
+   loc = datortc
+   loc2 = datortc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+; Rutina para enviar un retorno de carro y fin de línea via RS232...
+procedure CR_LF is
+   Serial_HW_Write(13)
+   Serial_HW_Write(10)
+end procedure
+
+procedure leer_rtc_enviar_datos is
+   leer_rtc(4,digi1,digi0)              ; dia
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("/")
+   leer_rtc(5,digi1,digi0)              ; mes
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write("/")
+   leer_rtc(6,digi1,digi0)              ; año
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write(" ")
+   Serial_HW_Write("-")
+   Serial_HW_Write(" ")
+   leer_rtc(2,digi1,digi0)              ; horas
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write(":")
+   leer_rtc(1,digi1,digi0)              ; minutos
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   Serial_HW_Write(":")
+   leer_rtc( 0, digi1, digi0 )          ; segundos
+   Serial_HW_Write(digi1+48)
+   Serial_HW_Write(digi0+48)
+   CR_LF
+end procedure
+
+
+; ======================================= PRINCIPAL ==========================================
+; apagar el pin que controla el relé que conecta la pila del RTC al ADC del PIC.
+rele_pila_rtc = off
+; Inicializar la USART interna del 16F877
+Serial_HW_init
+
+; Encendido y apagado del led/zumbador testigo de arranque.
+testigo = on
+delay_100ms( 10 )
+testigo = off
+
+forever loop
+   var byte data = 0
+   var byte y = 0
+
+   ; esperar que llegue caracter via RS232 x hard desde la PC...
+    if Serial_HW_read(data) then
+       if data == "a" then
+          ; si es "a" enviar mensaje de respuesta hacia la PC
+          y = 0
+          for count(mensaje0) using y loop
+             Serial_HW_Write(mensaje0[y])
+          end loop
+          CR_LF
+       elsif data == "c" then
+;          leer_rtc_enviar_datos
+       end if
+    end if
+
+   ; y esto se debería dar cada 1 segundo
+   if Flag_tmr0 then
+      leer_rtc_enviar_datos
+      testigo = ! testigo
+      ; limpiar bandera
+      Flag_tmr0 = false
+   end if
+
+end loop
+

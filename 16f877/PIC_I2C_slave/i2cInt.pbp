@@ -1,0 +1,179 @@
+'****************************************************************
+'*  Name    : i2cInt.BAS                                        *
+'*  Author  : Robert Soubie robert.soubie@free.fr               *
+'*  Notice  : Copyright (c) 2003 robert soubie                  *
+'*          : All Rights Reserved                               *
+'*  Date    : 16/12/2003                                        *
+'*  Version : 1.0                                               *
+'*  Notes   : This code is derived from Microchip erroneous and *
+'*          : misleading application note AN734; it has been    *
+'*          : corrected by adding a "CKP = 1" instruction in    *
+'*          : state 5 processing; it has been tested and work   *
+'*          : File "Proc_i2c.pbp" contanins the code for y ap-  *
+'*          : plication as an example: 3 bytes are received and *
+'*          : butes are sent to the master; this can easily be  *
+'*          : modified to suit other needs.                     * 
+'*          : Please feel free to contact me in case of problem *
+'****************************************************************
+
+    SCL                 VAR PORTC.3     ' I2C clock input
+    SCLDIR              var TRISC.3     ' I2C clock pin direction bit
+    SDA                 VAR PORTC.4     ' I2C data input
+    SDADIR              VAR TRISC.4     ' I2C data pin direction bit
+    SSPIE               VAR PIE1.3      ' SSP (I2C) interrupt enable
+'   SSPIF               VAR PIR1.3      ' SSP (I2C) interrupt flag
+    PEIE                var INTCON.6    ' Peripheral Interrupt Enable bit
+    CKP                 VAR SSPCON.4    ' SSP (I2C) SCK Release Control (16F876)
+    SSPEN               VAR SSPCON.5    ' SSP (I2C) Enable
+    SSPOV               VAR SSPCON.6    ' SSP (I2C) Receive Overflow Indicator
+    WCOL                VAR SSPCON.7    ' SSP (I2C) Write Collision Detect
+    STAT_BF             VAR SSPSTAT.0   ' SSP (I2C) Buffer Full
+    STAT_RW             VAR SSPSTAT.2   ' SSP (I2C) Read/Write
+    STAT_DA             VAR SSPSTAT.5   ' SSP (I2C) Data/Address
+    CKE                 VAR SSPSTAT.6   ' SSP (I2C) Data/Address
+    
+    i2c_Save_Status     var byte
+    i2cTempVar          var byte
+
+    i2cState            var byte        ' has the current state for the state machine
+    i2cCommand          var byte
+
+    ' i2c state type definitions
+    Ti2cMWLBWA          con 0
+    Ti2cMWLBWD          con 1
+    Ti2cMRLBWA          con 2
+    Ti2cMRLBWD          con 3 
+    Ti2cMNACK           con 4
+
+    ' Transmission Buffer definition
+    ' in this application, the receive buffer has 3 bytes (1 command byte and two parameters)
+    ' the transmit buffer has two bytes.
+    RxBufferLEN         con 3           
+    RxBuffer            var byte[Rxbufferlen]
+    RxBufferIndex       var byte
+
+    ' Reception Buffer defintion
+    TxBufferLEN         con 2
+    TxBuffer            var byte[txbufferlen]
+    TxBufferIndex       var byte
+
+    ' Define constants
+    i2c_slave_address   CON	$22                 ' make our address $22
+    i2c_slave_mask      con %00101101           ' masks out irrelevant bits
+
+    goto i2cSlaveInterruptsHandler
+
+i2c_Init:   
+    ' NB: Traiter ici le POR el le BOR par PCON = 3?                            
+    SCLDIR = 1                                  ' SCL must be made an input before enabling interrupts
+    SDADIR = 1                                  ' SDA must be made an input before enabling interrupts
+    SSPCON = $36                                ' configure for i2c
+    SSPCON2.7 = 0                               ' disable  general call address
+    SSPADD = i2c_slave_address  
+    SSPSTAT = 0
+    SSPIE = 1 
+    SSPIF = 0                                        
+'   PIE1 = 1                                    ' ?????????
+    PEIE = 1
+    GIE = 1   
+    RxBufferIndex = 0
+    TxBufferIndex = 0
+    return
+
+write_i2c:
+    while STAT_BF : wend                        ' loop while buffer is full
+    wcol = 0                                    ' clear collision flag
+    SSPBUF = TxBuffer[TxBufferIndex]
+    while wcol 
+        wcol = 0
+        SSPBUF = TxBuffer[TxBufferIndex]
+    wend
+    CKP = 1                                     ' release clock, allowing read by master
+    TxBufferIndex = TxBufferIndex + 1           ' increment index
+    if TxBufferIndex = TxBufferlen then         ' all bytes have been transmitted
+        TxBufferIndex = 0                       ' so reset index
+    endif
+    goto i2cSlaveInterruptsHandlerExit
+
+i2cSlaveInterruptsHandler:
+
+'   i2c_OutH = i2c_OutH + 1                     ' pour les besoins du test
+'   i2c_OutL = i2c_OutL - 1                     ' pour les besoins du test
+'   Ckp = 1
+'   i2c_Save_Status = SSPSTAT
+'    IF (i2C_Save_Status <> 9) and (i2C_Save_Status <> 41) and (i2C_Save_Status <> 12) _
+'        and (i2C_Save_Status <> 44) and (i2C_Save_Status <> 40) then i2cSlaveInterruptsHandlerExit
+
+    i2c_Save_Status = SSPSTAT & i2c_slave_mask
+
+State1:
+    ' write operation, last byte was an address, buffer is full
+    if i2c_Save_Status <> %00001001 then State2 ' S = 1, BF = 1
+'   i2cTempVAr = SSPBUF                         ' empty buffer
+    i2cState = Ti2cMWLBWA
+'   if DebugPIN = 0 then HSEROUT ["S", dec1 i2cState]
+    for RxBufferIndex = 0 to RxBufferLEN - 1    ' empty receive buffer
+        RxBuffer[RxbufferIndex] = 0
+    next RxBufferIndex
+    RxBufferIndex = 0                           ' reset buffer index
+    i2cTempVAr = SSPBUF                         ' empty buffer
+    if sspov then                               ' overflow occured?
+        sspov = 0
+        i2cTempVAr = SSPBUF                     ' empty buffer
+    endif
+    goto i2cSlaveInterruptsHandlerExit
+    
+State2:
+    ' write operation, last byte was data, buffer is full
+    if i2c_Save_Status <> %00101001 then State3 ' D/A = 1, S = 1, BF = 1
+    i2cState = Ti2cMWLBWD
+'   if DebugPIN = 0 then hserout ["S", dec1 i2cState]
+    RxBuffer[RxBufferIndex] = SSPBUF            ' read received byte and empty buffer
+    if sspov then                               ' overflow occured?
+        sspov = 0
+        i2cTempVAr = SSPBUF                     ' empty buffer
+    endif
+    RxBufferIndex = RxBufferIndex + 1           ' point at next empty slot in buffer
+    goto i2cSlaveInterruptsHandlerExit
+    
+State3:
+    ' read operation, last byte was an address, buffer is empty
+    if i2c_Save_Status <> %00001100 then State4
+    i2cState = Ti2cMRLBWA
+'   if DebugPIN = 0 then hserout ["S", dec1 i2cState]
+    goto write_i2c                              ' write next byte
+    
+State4: 
+    ' read operation, last byte was data, buffer is empty
+    if i2c_Save_Status <> %00101100 then State5
+    i2cState = Ti2cMRLBWD
+'   if DebugPIN = 0 then hserout ["S", dec1 i2cState]
+    goto write_i2c                              ' write next byte
+    
+State5: 
+    if i2c_Save_Status <> %00101000 then i2CErr
+    CKP = 1                                     ' Peut être ce qui manquait....
+    i2cState = Ti2cMNACK
+    goto i2cSlaveInterruptsHandlerExit
+    
+i2cErr:        
+    ' We should never get here..
+    
+i2cSlaveInterruptsHandlerExit:
+    ' Did we receive one command byte and two parameter bytes?
+    ' if so, RxBufferIndex equals 3
+    if rxbufferindex = 3 then
+        CKP = 0                                 ' Disable clock
+        include "Proc_i2c.pbp"
+        rxBufferIndex = 0                       ' Reset Rx Buffer index for next time we get a command
+        TxBufferindex = 0                       ' Reset Tx Buffer index for sending two result bytes
+        CKP = 1                                 ' Enable clock
+    endif
+
+    if sspov then                               ' overflow occured?
+        sspov = 0
+        i2cTempVAr = SSPBUF                     ' empty buffer
+    endif
+
+    SSPIF = 0                                   ' reset interrupt flag that took us here
+

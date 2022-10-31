@@ -1,0 +1,147 @@
+'****************************************************************
+'*  Name    : Proc_i2c.BAS                                      *
+'*  Author  : Robert Soubie                                     *
+'*  Notice  : Copyright (c) 2003                                *
+'*          : All Rights Reserved                               *
+'*  Date    : 11/05/03                                          *
+'*  Version : 1.0                                               *
+'*  Notes   :                                                   *
+'*          :                                                   *
+'****************************************************************
+    
+' i2c variables
+    i2c_address         var byte
+    i2c_command         var byte
+    i2c_parameter1      var byte
+    i2c_parameter2      var byte
+    i2c_outL            var byte
+    i2c_outH            var byte
+    i2c_dummy           var byte
+
+    i2c_NumeroConsigneAChange   var bit
+    i2c_ValeurConsigneAChange   var bit
+    i2c_GainPAChange            var bit
+    i2c_TempsIAChange           var bit
+    i2c_MarcheDemandee          var BIT
+    i2c_ArretDemande            var BIT
+    i2c_GelDecoupageDemande     var BIT
+    i2c_EclairementAChange      var BIT
+    
+    CommandeNonComprise         CON $FF    
+    
+    i2c_OutL = RxBuffer[0]
+    i2c_OutH = $ff
+
+    if RxBuffer[0] = "T" then
+        ' OK (84) Obtenir la température courante
+        i2c_OutL = Temperature.LowByte
+        i2c_OutH = Temperature.HighByte
+    else
+      IF RxBuffer[0] = "C" then
+        ' OK (67) Obtenir la valeur de consigne courante
+        i2c_OutL = ConsigneTemperature.LowByte
+        i2c_OutH = ConsigneTemperature.HighByte
+      ELSE
+        IF RxBuffer[0] = "R" then
+          ' OK (82) Obtenir le ratio de puissance courante (0 à 100)
+          i2c_OutL = Pourcent
+        else
+          If RxBuffer[0] = "N" then
+            ' OK (78) Obtenir le numéro de la consigne courante
+            i2c_OutL = ConsigneCourante + 1' [1..4]
+          else
+            if RxBuffer[0] = "1" then
+              ' OK (49) Mettre en vigueur la consigne n° 1
+              ConsigneCourante = 0
+            else
+              if RxBuffer[0] = "2" then
+                ' OK (50) Mettre en vigueur la consigne n° 2
+                ConsigneCourante = 1
+              else
+                if RxBuffer[0] = "3" then
+                  ' OK (51) Mettre en vigueur la consigne n° 3
+                  ConsigneCourante = 2
+                else
+                  if RxBuffer[0] = "4" then
+                    ' OK (52) Mettre en vigueur la consigne n° 4
+                    ConsigneCourante = 3
+                  ELSE
+                    IF RxBuffer[0] = "M" then
+                      ' OK (77) Demande de mise en route
+                      i2c_MarcheDemandee = TRUE
+                      i2c_ArretDemande = FALSE
+                    else
+                      if RxBuffer[0] = "A" then
+                        ' OK (65) Demande d'arrêt
+                        i2c_ArretDemande = TRUE
+                        i2c_MArcheDemandee = FALSE
+                      else
+                        if RxBuffer[0] = "P" then
+                          ' OK (80) Gain Proportionnel
+                          ' Etat_Menu = REGLAGE_P
+                          GainProportionnel = RxBuffer[1]
+                          if GainProportionnel > 100 then GainProportionnel = 50
+                          if GainProportionnel < 20 then GainProportionnel = 20
+                          i2c_GainPAChange = TRUE
+                        else
+                          IF RxBuffer[0] = "I" then
+                            ' OK (73) Temps d'intégrale
+                            ' Etat_Menu = REGLAGE_I
+                            TempsIntegrale = RxBuffer[1]
+                            if TempsIntegrale > 20 then TempsIntegrale = 20
+                            if TempsIntegrale = 0 then TempsIntegrale = 1
+                            i2c_TempsIAChange  = TRUE
+                          else
+                            if RxBuffer[0] = "?" then
+                              ' OK (63) obtenir P et I
+                              i2c_OutH = GainProportionnel
+                              i2c_OutL = TempsIntegrale
+                            ELSE
+                              if RxBuffer[0] = "G" then
+                                ' (71) "Gel" du taux cyclique Peltier
+                                i2c_GelDecoupageDemande = TRUE
+                              else
+                                if RxBuffer[0] = "D" then
+                                  ' (68) "Dégel" du taux cyclique Peltier 
+                                    i2c_GelDecoupageDemande = FALSE
+                                else
+                                  if RxBuffer[0]= "K" then
+                                    ' (75) Imposer une nouvelle valeur de la consigne 
+                                    ' Etat_Menu = CONSIGNE
+                                    ConsigneTemperature.HighByte = RxBuffer[1]
+                                    ConsigneTemperature.LowByte = RxBuffer[2]
+                                    i2c_ValeurConsigneAChange = TRUE
+                                  else
+                                    if RxBuffer[0] = "E" then
+                                      ' (69) Imposer un nouveau pourcentage d'éclairement de l'afficheur 
+                                      ' Etat_Menu = ECLAIRAGE  
+                                      i2c_EclairementAChange = TRUE              
+                                      TauxCycliqueEclairage = (10 * RxBuffer[1]) MIN 1000
+                                    else
+                                      i2c_OutH = $FF    ' Erreur, commande non comprise 
+'                                     i2c_OutL = $FF
+                                    endif
+                                  endif
+                                endif
+                              endif
+                            endif                                                    
+                          endif
+                        endif                                            
+                      endif
+                    endif
+                  endif
+                endif
+              endif
+            endif
+          ENDIF
+        ENDIF
+      ENDIF
+    ENDIF
+    TxBuffer[0] = i2c_outh
+    TxBuffer[1] = i2c_outL
+    if (RxBuffer[0] > "0") and (RxBuffer[0] < "5") then 
+        ' Etat_Menu = CHOIXCONS
+        ConsigneTemperature = Consignes[ConsigneCourante]
+        i2c_NumeroConsigneAChange = TRUE
+    endif
+

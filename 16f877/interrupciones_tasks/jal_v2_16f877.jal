@@ -1,0 +1,56 @@
+; Biblioteca de definiciones de hardware, es copia local (recomendado).
+
+; Definiciones específicas del pic 16F877
+include pjal_877
+const bit enhanced_flash_eeprom = true
+
+; Rutinas para breakpoints e IDs de librería (venía con la librería, desconozco
+; que funcionalidad extra provee).
+include pic_general
+
+; Inicializaciones comunes al 877/20 MHz:
+;---------------------------------------------------------------------------
+; Deshabilitar interrupciones
+INTCON = 0
+
+; Seteos de hardware
+pragma target clock       20_000_000
+pragma target osc         hs
+pragma target watchdog    off
+pragma target powerup     on
+pragma target protection  off
+
+; reloj HS, sin brown out, sin LVP, sin watchdog,
+; SIN PROTECCIÓN DE CÓDIGO
+pragma target fuses       0x3F32
+
+; Deshabilitar momentáneamente el ADC interno del 16F877
+const byte no_ADC = 7
+; y poner el puerto A como entradas/salidas digitales
+ADCON1 = no_ADC
+
+; Rutinas de retardo para 20 MHz
+include delay_any_mc
+
+; Para más detalles sobre los siguientes parámetros, consultar la librería adc_hardware
+
+; Número de canales analógicos a usar
+const ADC_hardware_Nchan      = 8
+; Número de referencias de tensión externas (no se usa ninguna).
+const ADC_hardware_NVref      = 0
+; Maxima resistencia de origen de magnitud analógica (max recomendada = 10 kOhm)
+; Esto está relacionado con la electrónica (sensor, etc.) de dónde proviene la
+; señal analógica a ser convertida a digital.
+const ADC_hardware_Rsource    = 10_000
+; Poner ADC en modo de 8 bits.
+const ADC_hardware_high_resolution = false
+
+; Recién luego de definir los seteos incluir la biblioteca de hard del ADC
+include adc_hardware
+; E inicializar el hard, basándose en los seteos de más arriba
+ADC_init
+
+; Rutinas para el uso de la eeprom interna del PIC (NO las del banco).
+include pic_data_eeprom 
+
+

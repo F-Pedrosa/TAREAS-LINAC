@@ -1,0 +1,313 @@
+; Firmware para probar el hardware interno I2C del 16F877
+
+; Biblioteca de definiciones generales básicas.
+include jal_v2_16F877
+
+; Parámetros de uso de la USART interna del F877:
+const USART_HW_Serial     = true     ; True = RS232
+const Serial_HW_Baudrate  = 115_200   ; Definir bps (debe coincidir con la PC)
+; Librería que permite utilizar la USART interna del F877
+include serial_hardware
+
+; Inclusión biblioteca I2C por hardware
+include i2c_hardware_fep
+; Variables necesarias para la biblioteca, están declaradas en ella.
+;_I2C_bus_speed = 10        equivale a un bus de 1 MHz
+;_I2C_bus_speed = 4         equivale a un bus de 400 KHz
+; cualquier otro valor fija el bus I2C a 100 KHz
+_I2C_bus_speed     = 4
+_I2C_level         = 1       ; <-- indica protocolo I2C
+
+
+; declaraciones de direcciones de los pines a usarse
+pin_b7_direction = output    ; led testigo y zumbador
+pin_d0_direction = output    ; control relé pila RTC
+pin_d1_direction = input     ; sensado de lector conectado
+
+; Aliases de estos pines
+var bit testigo is pin_b7
+var bit rele_pila_rtc is pin_d0
+var bit lector_conectado is pin_d1
+
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+; strings de los mensajes a ser enviados a la PC serialmente
+const byte mensaje0[] = "PIC AME2 respondiendo..."
+const byte mensaje1[] = "10 bytes escritos en EEPROM #0"
+
+;const byte tramon[15]="abcdefghijklmno"
+
+;============================================================================================
+
+; Para convertir un byte en 3 dígitos separados.
+procedure bin2digits( byte out dig2, byte out dig1, byte out dig0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+
+   centena = numero / 100
+   dig2 = centena
+   centena = dig2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   dig1 = decena
+   decena = dig1 * 10
+   numero = numero - decena
+   dig0 = numero
+end procedure
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte datortc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   _I2C_HW_startbit
+   ; se envía la ID del RTC con LSB en 0...
+   _I2C_HW_put_byte (0b1101_0000)
+   ; y luego el número de registro deseado...
+   _I2C_HW_put_byte (ad)
+   _I2C_HW_stopbit
+   ;------------
+   _I2C_HW_startbit
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   _I2C_HW_put_byte (0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   _I2C_HW_receive_byte ( datortc )
+   _I2C_HW_stopbit
+   ;------------
+   loc = datortc
+   loc2 = datortc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+
+procedure obtener_hora is
+   var byte digi1 = 0
+   var byte digi0 = 0
+
+   leer_rtc(2,digi1,digi0)
+   digi1 = digi1 * 10
+   hora = digi1 + digi0
+   ; ---------------------------
+   leer_rtc(1,digi1,digi0)
+   digi1 = digi1 * 10
+   minuto = digi1 + digi0
+   ; ---------------------------
+   leer_rtc(0,digi1,digi0)
+   digi1 = digi1 * 10
+   segundo = digi1 + digi0
+
+end procedure
+
+
+procedure escribir_eeprom( byte in eepr_pos, word in address, byte in dato ) is
+; Rutina para escribir un byte en dirección determinada de una EEPROM en particular.
+   var byte AX[2] at address
+   var bit resul = false
+   ; primero, enviar el id de la EEPROM
+   ; su dirección específica y el bit de R/W.
+   _I2C_HW_startbit
+   _I2C_HW_put_byte (eepr_pos)
+   ; byte alto dirección
+   _I2C_HW_put_byte (AX[1])
+   ; byte bajo dirección
+   _I2C_HW_put_byte (AX[0])
+   ; Enviar dato a escribir
+   _I2C_HW_put_byte (dato)
+   _I2C_HW_stopbit
+;   VER LA GRABACIÓN POR PÁGINAS!!!!!!!!!!!!!!!
+   delay_1ms ( 4 )   ; para darle tiempo a la EEPROM de escribir
+end procedure
+
+function leer_eeprom( byte in eepr_pos, word in address ) return byte is
+   var byte dato
+   var byte AX[2] at address
+   var bit resul = false
+   ; primero, enviar el id de la EEPROM
+   _I2C_HW_startbit
+   resul = _I2C_HW_transmit_byte(eepr_pos)
+   ; byte alto dirección
+   resul = _I2C_HW_transmit_byte(AX[1])
+   ; byte bajo dirección
+   resul = _I2C_HW_transmit_byte(AX[0])
+   _I2C_HW_restartbit
+   ; bit de R/W a 1 y enviar
+   resul = _I2C_HW_transmit_byte( eepr_pos | 0b0000_0001)
+   ; leer byte devuelto por la EEPROM...
+   _I2C_HW_receive_byte(dato)
+   _I2C_HW_stopbit
+   return dato
+end function
+
+
+; Rutina para escribir 10 bytes en determinada EEPROM.
+procedure escribir_bytes_eeprom( byte in eepr_pos, word in address ) is
+   var byte indice = 0
+   var byte AX[2] at address
+   var bit resul
+   ; primero, enviar el id de la EEPROM
+   ; su dirección específica y el bit de R/W.
+   _I2C_HW_startbit
+   _I2C_HW_put_byte(eepr_pos)
+   _I2C_HW_put_byte(AX[1])
+   _I2C_HW_put_byte (AX[0])
+   ; Enviar datos a escribir
+   indice = 0
+   for 10 using indice loop
+      _I2C_HW_put_byte(indice)
+   end loop
+   _I2C_HW_stopbit
+end procedure
+
+
+; Rutina para enviar un retorno de carro y fin de línea via RS232...
+procedure CR_LF is
+   Serial_HW_Write(13)
+   Serial_HW_Write(10)
+end procedure
+
+; -------------------------- PRINCIPAL ----------------------------------
+; apagar el pin que controla el relé que conecta la pila del RTC al ADC del PIC.
+pin_d0 = off
+
+; inicialización del bus I2C
+_I2C_HW_initialize
+
+; Inicializar la USART interna del 16F877
+Serial_HW_init
+
+; Encendido y apagado del led/zumbador testigo de arranque.
+testigo = on
+delay_100ms( 10 )
+testigo = off
+
+var byte data = 0
+
+forever loop
+
+    var byte y = 0
+    var byte digi0 = 0
+    var byte digi1 = 0
+    var byte digi2 = 0
+    var byte index = 0
+    var byte valor = 0
+
+    ; esperar que llegue caracter via RS232 x hard desde la PC...
+    while !Serial_HW_read(data) loop
+    end loop
+
+    if data == "a" then
+       ; si es "a" enviar mensaje de respuesta hacia la PC
+       y = 0
+       for count(mensaje0) using y loop
+          Serial_HW_Write(mensaje0[y])
+       end loop
+       CR_LF
+    elsif data == "c" then
+       leer_rtc(4,digi1,digi0)              ; dia
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write("/")
+       leer_rtc(5,digi1,digi0)              ; mes
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write("/")
+       leer_rtc(6,digi1,digi0)              ; año
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write(" ")
+       Serial_HW_Write("-")
+       Serial_HW_Write(" ")
+       leer_rtc(2,digi1,digi0)              ; horas
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write(":")
+       leer_rtc(1,digi1,digi0)              ; minutos
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write(":")
+       leer_rtc( 0, digi1, digi0 )          ; segundos
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       CR_LF
+    elsif data == "w" then
+       ; escribir 10 bytes determinados en 10 direcciones
+       ; consecutivas de la eeprom #0
+       for 10 loop
+           escribir_eeprom(0b1010_0000,index,valor)
+           index = index + 1
+           valor = valor + 2
+       end loop
+       y = 0
+       for count(mensaje1) using y loop
+          Serial_HW_Write(mensaje1[y])
+       end loop
+       CR_LF
+    elsif data == "r" then
+       ; leer los 20 bytes supuestamente escritos en la eeprom #0
+       index = 0
+       for 20 using index loop
+           valor = leer_eeprom(0b1010_0000,index)
+           bin2digits(digi2,digi1,digi0,valor)
+           Serial_HW_Write(digi2+48)
+           Serial_HW_Write(digi1+48)
+           Serial_HW_Write(digi0+48)
+           CR_LF
+       end loop
+    ; testeo de escritura por página en la EEPROM, usando
+    ; el hard I2C, para comparar con la librería de soft.
+    elsif data == "e" then
+       ; leer RTC y mandar
+       obtener_hora
+       bin2digits(digi2,digi1,digi0,hora)
+       Serial_HW_write(digi1+48)
+       Serial_HW_write(digi0+48)
+       Serial_HW_Write(":")
+       bin2digits(digi2,digi1,digi0,minuto)
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write(":")
+       bin2digits(digi2,digi1,digi0,segundo)
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       ; caracteres de cierre
+       Serial_HW_Write(13)
+       Serial_HW_Write(10)
+       index = 0
+       for 200 loop
+           escribir_bytes_eeprom(0b1010_0000,index)
+           delay_1ms(4)
+           index = index + 10
+       end loop
+       ; leer RTC y mandar
+       obtener_hora
+       bin2digits(digi2,digi1,digi0,hora)
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write(":")
+       bin2digits(digi2,digi1,digi0,minuto)
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       Serial_HW_Write(":")
+       bin2digits(digi2,digi1,digi0,segundo)
+       Serial_HW_Write(digi1+48)
+       Serial_HW_Write(digi0+48)
+       ; caracteres de cierre
+       Serial_HW_Write(13)
+       Serial_HW_Write(10)
+    elsif data == "t" then
+       escribir_bytes_eeprom(0b1010_0000,0)
+       delay_1ms(4)
+       escribir_bytes_eeprom(0b1010_0000,10)
+       delay_1ms(4)
+    end if
+end loop
+
