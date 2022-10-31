@@ -1,0 +1,288 @@
+; Firm para una AME2 con 16F877, para medir la frecuencia de oscilación del sensor ultrasónico
+
+; librería de dispositivo
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+
+;; Para comunicaciones seriales x hardware
+;const serial_hw_baudrate = 115_200
+;include serial_hardware
+;serial_hw_init()
+
+
+; para simplificar el formateo de los datos hacia la PC
+include print
+
+;; librería para poder leer y escribir de la eeprom INTERNA del PIC
+;include pic_data_eeprom
+
+
+; I2C pines
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; constantes
+const word _i2c_bus_speed = 1 ; * 100kHz
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+
+; Constantes y declaraciones a usarse por la librería del LCD
+const byte LCD_ROWS     = 2               -- 1, 2 or 4 lines
+const byte LCD_CHARS    = 16              -- 8, 16 or 20 chars per line
+; alias para handshake:
+alias  lcd_rs  is  pin_b4        ; una línea para RS
+alias  lcd_en  is  pin_b5        ; una línea para EN
+; alias para 4 líneas datos:
+alias  lcd_d4  is  pin_b0         -- lcd databit d4
+alias  lcd_d5  is  pin_b1         -- lcd databit d5
+alias  lcd_d6  is  pin_b2         -- lcd databit d6
+alias  lcd_d7  is  pin_b3         -- lcd databit d7
+; setear direcciones
+portb_direction = all_output
+
+
+pin_b6_direction = output
+pin_b0_direction = output
+pin_b1_direction = output
+pin_b2_direction = output
+
+alias deteccion is pin_c1
+pin_c1_direction = input
+
+; librería e inicialización
+include lcd_hd44780_4
+lcd_init()
+
+
+; definir direccion pin PWM
+pin_ccp1_direction = output
+include pwm_hardware
+; activar PWM
+pwm1_on()
+
+alias testigo is pin_b7
+
+alias lector_conectado is pin_d1
+pin_d1_direction = input
+
+var byte digi4 = 0
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+var word valor1 = 0
+var word total_a_grabar = 0
+var word direccion = 0
+
+var word contador = 0
+
+var word arreglo_mediciones[5]
+var word promedio = 0
+var word centimetros = 0
+
+
+function digi2bin(byte in di2,byte in di1,byte in di0) return byte is
+   var byte resultado = 0
+   var byte temporal = 0
+
+   if di2 != 0 then
+      resultado = di2 * 100
+   end if
+   temporal = di1 * 10
+   resultado = resultado + temporal
+   resultado = resultado + di0
+   return resultado
+end function
+procedure bin2digits( byte out digi2, byte out digi1, byte out digi0, byte in numero ) is
+   var byte centena = 0
+   var byte decena = 0
+   centena = numero / 100
+   digi2 = centena
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = numero / 10
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = numero
+end procedure
+
+procedure word2digits( byte out digi4, byte out digi3, byte out digi2, byte out digi1, byte out digi0, word in numero ) is
+
+   var word dec_miles = 0
+   var word miles = 0
+   var word centena = 0
+   var byte decena = 0
+
+   dec_miles = numero/10000
+   digi4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   digi3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   digi2 = byte(centena)
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = byte(numero)
+
+end procedure
+
+
+procedure medir is
+   var byte y = 0
+   var word total = 0
+
+   var byte cantidad
+
+   for count(arreglo_mediciones) using y loop
+      pwm1_on()
+      delay_10us(200)         ; ajustar duración del pulso?
+      pwm1_off()
+      ; valor para las pruebas exitosas 230!!!!!!!!!!!!!!!!!!!!!
+      delay_10us(230)         ; espacio de protección contra detección espúrea (no rebote), ajustado via scope
+      while deteccion != on loop
+         contador = contador + 1
+         delay_10us(2)
+   ;        ; mecanismo para salir del lazo si no se detecta pulso de retorno!!!!!!!!
+           if contador >= 10000 then
+              contador = 0
+              exit loop
+           end if
+      end loop
+      arreglo_mediciones[y] =  contador
+      delay_1ms(10)                            ; ATENCIÓN: 10 ms parece ser el mejor valor!!
+      contador = 0
+   end loop
+
+   y = 0
+   ; calcular promedio, redondear hacia arriba
+   cantidad = count(arreglo_mediciones)
+   for cantidad using y loop
+       total = total + arreglo_mediciones[y]
+   end loop
+   promedio = (total/cantidad)   ; recordar que la división es entera
+;    promedio = contador
+   contador = 0
+end procedure
+
+
+
+; ================================== PRINCIPAL ==========================================
+
+
+if lector_conectado then
+   ; Asegurarse que el ADC interno esté "apagado", para impedir la generación
+   ; de interrupciones y otros efectos extraños.
+   ADC_off
+   ; asegurarse que los pines del bus I2C estén "desconectados"
+   pin_c3_direction = input
+   pin_c4_direction = input
+   ; un pitido cortito como señal de que se va a apagar el PIC
+   testigo = on
+   delay_100ms( 2 )              ; 0,2 segs de pitido
+   testigo = off
+   delay_100ms( 2 )
+   ; Limpiar el watchdog, por si acaso, recomendado en hoja de datos.
+   asm clrwdt
+   ; Poner en modo "dormido" (bajo consumo, reloj detenido, programa parado).
+   asm sleep
+end if
+
+const byte msg_ok[] = "OK"
+const byte msg_err[] = "error"
+
+;testigo = off
+testigo = on
+delay_100ms(15)
+testigo = off
+
+lcd_clear_screen()
+print_string(lcd,msg_ok)
+delay_100ms(15)
+lcd_clear_screen()
+
+;var word frecuencia = 25000        ; 25 KHz, arrancamos con esta
+
+var word valor_tabla = 0
+var word direcc = 0
+var byte dire[2] at direcc = {0,0}
+var byte valores[2] at valor_tabla = {0,0}
+var bit resul
+
+
+
+pwm_set_frequency(40_000)
+pwm1_set_percent_dutycycle(50)     ; el ciclo de trabajo fijado en 50%, debe recalcularse ante cada cambio de frec.
+
+pwm1_off()
+
+forever loop
+    ; hacer pulso de 1 ms cada 20 ms...
+    pwm1_on()
+    delay_1ms(8)
+    pwm1_off()
+    delay_1ms(40)
+
+
+;    medir
+
+;   ; convertir valor de cuentas a equivalente en cm usando tabla cargada en EEPROM externa
+;   while promedio > valor_tabla loop
+;      ; Comenzar comunicación I2C
+;      i2c_start()
+;      ; Dirección i2c de la eeprom, modo escritura (para indicar la direcciones internas)
+;      ; apuntamos a la eeprom situada en el 2do zócalo.
+;      resul = i2c_transmit_byte(0xA2)
+;      ; Byte alto dirección a leer
+;      resul = resul & i2c_transmit_byte(dire[1])
+;      ; Byte bajo dirección a leer
+;      resul = resul & i2c_transmit_byte(dire[0])
+;      ; Necesario restart del bus
+;      i2c_restart()
+;      ; Dirección i2c de la eeprom, modo lectura (de la direcciones interna)
+;      resul = resul & i2c_transmit_byte(0xA3)
+;      ; cargar valor de tabla (2 bytes)
+;      valores[1] = i2c_receive_byte(true)
+;      valores[0] = i2c_receive_byte(false)
+;      ; Terminar comunicación I2C
+;;      i2c_stop()
+;      ; incrementar dirección a ser leída, recordar que leemos 2 bytes por vez (un word)
+;      direcc = direcc + 2
+;      ; para salir de lazo si superamos el tamaño de la tabla
+;      if direcc > 446 then
+;         exit loop
+;      end if
+;   end loop
+;   i2c_stop()
+;   centimetros = direcc/2 + 50
+;   direcc = 0
+;   valor_tabla = 0
+;
+;   print_word_dec(lcd, promedio)
+;   ; bajar a la 2da línea y ahí mostrar el valor centímetros
+;   lcd_cursor_position(1,0)
+;   print_word_dec(lcd, centimetros)
+;   lcd_cursor_position(0,0)
+;
+;   delay_100ms(10)          ; 1 vez por segundo
+;   lcd_clear_screen
+
+   
+end loop

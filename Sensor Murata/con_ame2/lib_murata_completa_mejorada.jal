@@ -1,0 +1,952 @@
+; Librería EXTENDIDA/COMPLETA MEJORADA para convertir el valor leído de sensores Murata a cm.
+
+; Uso: invocar en programa principal al procedure valor_a_cm pasándole
+; como primer parámetro el valor devuelto por Muratas (un word) y recibiendo
+; como segundo parámetro la distancia en cm (otro word)
+;
+;      valor_a_cm(valor,centímetros)
+;
+; luego el valor de cms ya puede pasarse por la bin2digits e imprimir x LCD.
+
+procedure valor_a_cm(word in valor, word out cms) is
+
+   if valor > 1000 then   ; fuera de rango
+      cms=2
+      return
+   end if
+
+;   if valor <= 885 & valor >= 881 then
+;      cms=280
+;      return
+;   end if
+;   if valor <= 880 & valor >= 876 then
+;      cms=279
+;      return
+;   end if
+;   if valor <= 875 & valor >= 871 then
+;      cms=278
+;      return
+;   end if
+;   if valor <= 870 & valor >= 866 then
+;      cms=277
+;      return
+;   end if
+;   if valor <= 865 & valor >= 861 then
+;      cms=276
+;      return
+;   end if
+;   if valor <= 860 & valor >= 856 then
+;      cms=275
+;      return
+;   end if
+;   if valor <= 855 & valor >= 852 then
+;      cms=274
+;      return
+;   end if
+;   if valor <= 851 & valor >= 848 then
+;      cms=273
+;      return
+;   end if
+;   if valor <= 847 & valor >= 841 then
+;      cms=272
+;      return
+;   end if
+;   if valor <= 840 & valor >= 837 then
+;      cms=271
+;      return
+;   end if
+;   if valor <= 836 & valor >= 832 then
+;      cms=270
+;      return
+;   end if
+;   if valor <= 830 & valor >= 827 then
+;      cms=269
+;      return
+;   end if
+;   if valor <= 826 & valor >= 824 then
+;      cms=268
+;      return
+;   end if
+;   if valor <= 823 & valor >= 821 then
+;      cms=267
+;      return
+;   end if
+;   if valor <= 820 & valor >= 818 then
+;      cms=266
+;      return
+;   end if
+;   if valor <= 817 & valor >= 815 then
+;      cms=265
+;      return
+;   end if
+;   if valor <= 814 & valor >= 812 then
+;      cms=264
+;      return
+;   end if
+;   if valor <= 811 & valor >= 809 then
+;      cms=263
+;      return
+;   end if
+;   if valor <= 808 & valor >= 806 then
+;      cms=262
+;      return
+;   end if
+;   if valor <= 805 & valor >= 804 then
+;      cms=261
+;      return
+;   end if
+;   if valor <= 803 & valor >= 801 then
+;      cms=260
+;      return
+;   end if
+;   if valor <= 800 & valor >= 797 then
+;      cms=259
+;      return
+;   end if
+;   if valor <= 796 & valor >= 792 then
+;      cms=258
+;      return
+;   end if
+;   if valor <= 791 & valor >= 787 then
+;      cms=257
+;      return
+;   end if
+;   if valor <= 786 & valor >= 782 then
+;      cms=256
+;      return
+;   end if
+;   if valor <= 781 & valor >= 777 then
+;      cms=255
+;      return
+;   end if
+;   if valor <= 776 & valor >= 773 then
+;      cms=254
+;      return
+;   end if
+;   if valor <= 772 & valor >= 768 then
+;      cms=253
+;      return
+;   end if
+;   if valor <= 767 & valor >= 763 then
+;      cms=252
+;      return
+;   end if
+;   if valor <= 762 & valor >= 758 then
+;      cms=251
+;      return
+;   end if
+;   if valor <= 757 & valor >= 753 then
+;      cms=250
+;      return
+;   end if
+;
+;   if valor <= 752 & valor >= 748 then
+;      cms=249
+;      return
+;   end if
+;
+;   if valor <= 747 & valor >= 744 then
+;      cms=248
+;      return
+;   end if
+;
+;   if valor <= 743 & valor >= 740 then
+;      cms=247
+;      return
+;   end if
+;   if valor <= 739 & valor >= 736 then
+;      cms=246
+;      return
+;   end if
+;   if valor <= 735 & valor >= 732 then
+;      cms=245
+;      return
+;   end if
+;
+;   if valor <= 731 & valor >= 729 then
+;      cms=244
+;      return
+;   end if
+;
+;   if valor <= 728 & valor >= 725 then
+;      cms=243
+;      return
+;   end if
+;
+;
+;   if valor <= 724 & valor >= 721 then
+;      cms=242
+;      return
+;   end if
+;
+;   if valor <= 720 & valor >= 718 then
+;      cms=241
+;      return
+;   end if
+;
+;
+;   if valor <= 717 & valor >= 714 then
+;      cms=240
+;      return
+;   end if
+;   if valor <= 713 & valor >= 709 then
+;      cms=239
+;      return
+;   end if
+;   if valor <= 708 & valor >= 705 then
+;      cms=238
+;      return
+;   end if
+;   if valor <= 704 & valor >= 701 then
+;      cms=237
+;      return
+;   end if
+;   if valor <= 700 & valor >= 698 then
+;      cms=236
+;      return
+;   end if
+;   if valor <= 697 & valor >= 694 then
+;      cms=235
+;      return
+;   end if
+;   if valor <= 693 & valor >= 691 then
+;      cms=234
+;      return
+;   end if
+;   if valor <= 690 & valor >= 688 then
+;      cms=233
+;      return
+;   end if
+;   if valor <= 687 & valor >= 685 then
+;      cms=232
+;      return
+;   end if
+;   if valor <= 684 & valor >= 682 then
+;      cms=231
+;      return
+;   end if
+;   if valor <= 681 & valor >= 678 then
+;      cms=230
+;      return
+;   end if
+;   if valor <= 677 & valor >= 673 then
+;      cms=229
+;      return
+;   end if
+;   if valor <= 672 & valor >= 669 then
+;      cms=228
+;      return
+;   end if
+;   if valor <= 668 & valor >= 665 then
+;      cms=227
+;      return
+;   end if
+;   if valor <= 664 & valor >= 661 then
+;      cms=226
+;      return
+;   end if
+;   if valor <= 660 & valor >= 658 then
+;      cms=225
+;      return
+;   end if
+;   if valor <= 657 & valor >= 654 then
+;      cms=224
+;      return
+;   end if
+;   if valor <= 653 & valor >= 650 then
+;      cms=223
+;      return
+;   end if
+;   if valor <= 649 & valor >= 646 then
+;      cms=222
+;      return
+;   end if
+;   if valor <= 645 & valor >= 642 then
+;      cms=221
+;      return
+;   end if
+;   if valor <= 641 & valor >= 638 then
+;      cms=220
+;      return
+;   end if
+;   if valor <= 637 & valor >= 634 then
+;      cms=219
+;      return
+;   end if
+;   if valor <= 633 & valor >= 630 then
+;      cms=218
+;      return
+;   end if
+;   if valor <= 629 & valor >= 626 then
+;      cms=217
+;      return
+;   end if
+;   if valor <= 625 & valor >= 622 then
+;      cms=216
+;      return
+;   end if
+;   if valor <= 621 & valor >= 618 then
+;      cms=215
+;      return
+;   end if
+;   if valor <= 616 & valor >= 613 then
+;      cms=214
+;      return
+;   end if
+;   if valor <= 612 & valor >= 609 then
+;      cms=213
+;      return
+;   end if
+;   if valor <= 608 & valor >= 605 then
+;      cms=212
+;      return
+;   end if
+;   if valor <= 604 & valor >= 601 then
+;      cms=211
+;      return
+;   end if
+;   if valor <= 600 & valor >= 598 then
+;      cms=210
+;      return
+;   end if
+;   if valor <= 597 & valor >= 596 then
+;      cms=209
+;      return
+;   end if
+;   if valor <= 595 & valor >= 592 then
+;      cms=208
+;      return
+;   end if
+;   if valor <= 591 & valor >= 588 then
+;      cms=207
+;      return
+;   end if
+;   if valor <= 587 & valor >= 584 then
+;      cms=206
+;      return
+;   end if
+;   if valor <= 583 & valor >= 580 then
+;      cms=205
+;      return
+;   end if
+;   if valor <= 579 & valor >= 576 then
+;      cms=204
+;      return
+;   end if
+;   if valor <= 575 & valor >= 572 then
+;      cms=203
+;      return
+;   end if
+;   if valor <= 571 & valor >= 568 then
+;      cms=202
+;      return
+;   end if
+;   if valor <= 567 & valor >= 562 then
+;      cms=201
+;      return
+;   end if
+;   if valor <= 561 & valor >= 557 then
+;      cms=200
+;      return
+;   end if
+;   if valor <= 556 & valor >= 552 then
+;      cms=199
+;      return
+;   end if
+;   if valor <= 551 & valor >= 548 then
+;      cms=198
+;      return
+;   end if
+;   if valor <= 547 & valor >= 543 then
+;      cms=197
+;      return
+;   end if
+;   if valor <= 542 & valor >= 539 then
+;      cms=196
+;      return
+;   end if
+;   if valor <= 538 & valor >= 535 then
+;      cms=195
+;      return
+;   end if
+;   if valor <= 534 & valor >= 531 then
+;      cms=194
+;      return
+;   end if
+;   if valor <= 530 & valor >= 527 then
+;      cms=193
+;      return
+;   end if
+;   if valor <= 526 & valor >= 523 then
+;      cms=192
+;      return
+;   end if
+;   if valor <= 522 & valor >= 519 then
+;      cms=191
+;      return
+;   end if
+;   if valor <= 518 & valor >= 516 then
+;      cms=190
+;      return
+;   end if
+;   if valor <= 515 & valor >= 512 then
+;      cms=189
+;      return
+;   end if
+;   if valor <= 511 & valor >= 508 then
+;      cms=188
+;      return
+;   end if
+;   if valor <= 507 & valor >= 504 then
+;      cms=187
+;      return
+;   end if
+;   if valor <= 501 & valor >= 497 then
+;      cms=186
+;      return
+;   end if
+;   if valor <= 496 & valor >= 494 then
+;      cms=185
+;      return
+;   end if
+;   if valor <= 493 & valor >= 492 then
+;      cms=184
+;      return
+;   end if
+;   if valor <= 491 & valor >= 490 then
+;      cms=183
+;      return
+;   end if
+;   if valor <= 489 & valor >= 488 then
+;      cms=182
+;      return
+;   end if
+;   if valor <= 487 & valor >= 486 then
+;      cms=181
+;      return
+;   end if
+;   if valor <= 485 & valor >= 483 then
+;      cms=180
+;      return
+;   end if
+;   if valor <= 482 & valor >= 480 then
+;      cms=179
+;      return
+;   end if
+;   if valor <= 479 & valor >= 477 then
+;      cms=178
+;      return
+;   end if
+;   if valor <= 476 & valor >= 474 then
+;      cms=177
+;      return
+;   end if
+;   if valor <= 473 & valor >= 471 then
+;      cms=176
+;      return
+;   end if
+;   if valor <= 470 & valor >= 468 then
+;      cms=175
+;      return
+;   end if
+;   if valor <= 467 & valor >= 465 then
+;      cms=174
+;      return
+;   end if
+;   if valor <= 464 & valor >= 462 then
+;      cms=173
+;      return
+;   end if
+;   if valor <= 461 & valor >= 459 then
+;      cms=172
+;      return
+;   end if
+;
+;   if valor <= 458 & valor >= 454 then
+;      cms=171
+;      return
+;   end if
+;   if valor <= 451 & valor >= 447 then
+;      cms=170
+;      return
+;   end if
+;   if valor <= 446 & valor >= 443 then
+;      cms=169
+;      return
+;   end if
+;   if valor <= 442 & valor >= 438 then
+;      cms=168
+;      return
+;   end if
+;   if valor <= 437 & valor >= 432 then
+;      cms=167
+;      return
+;   end if
+;   if valor <= 431 & valor >= 426 then
+;      cms=166
+;      return
+;   end if
+;   if valor <= 425 & valor >= 420 then
+;      cms=165
+;   return
+;   end if
+;   if valor <= 419 & valor >= 414 then
+;      cms=164
+;      return
+;   end if
+;   if valor <= 413 & valor >= 409 then
+;      cms=163
+;      return
+;   end if
+;   if valor <= 408 & valor >= 403 then
+;      cms=162
+;      return
+;   end if
+;   if valor <= 402 & valor >= 397 then
+;      cms=161
+;      return
+;   end if
+;   if valor <= 396 & valor >= 393 then
+;      cms=160
+;      return
+;   end if
+;   if valor <= 392 & valor >= 390 then
+;      cms=159
+;      return
+;   end if
+;   if valor <= 389 & valor >= 387 then
+;      cms=158
+;      return
+;   end if
+;   if valor <= 386 & valor >= 384 then
+;      cms=157
+;      return
+;   end if
+;   if valor <= 383 & valor >= 381 then
+;      cms=156
+;      return
+;   end if
+;   if valor <= 380 & valor >= 378 then
+;      cms=155
+;      return
+;   end if
+;   if valor <= 390 & valor >= 387 then
+;      cms=154
+;      return
+;   end if
+;   if valor <= 386 & valor >= 382 then
+;      cms=153
+;      return
+;   end if
+;   if valor <= 381 & valor >= 378 then
+;      cms=152
+;      return
+;   end if
+;   if valor <= 377 & valor >= 375 then
+;      cms=151
+;      return
+;   end if
+;   if valor <= 374 & valor >= 369 then
+;      cms=150
+;      return
+;   end if
+
+   if valor <= 368 & valor >= 363 then
+      cms=149
+      return
+   end if
+   if valor <= 362 & valor >= 357 then
+      cms=148
+      return
+   end if
+   if valor <= 356 & valor >= 351 then
+      cms=147
+      return
+   end if
+   if valor <= 350 & valor >= 345 then
+      cms=146
+      return
+   end if
+   if valor <= 344 & valor >= 339 then
+      cms=145
+      return
+   end if
+   if valor <= 338 & valor >= 332 then
+      cms=144
+      return
+   end if
+   if valor <= 331 & valor >= 326 then
+      cms=143
+      return
+   end if
+   if valor <= 325 & valor >= 320 then
+      cms=142
+      return
+   end if
+   if valor <= 319 & valor >= 314 then
+      cms=141
+      return
+   end if
+   if valor <= 313 & valor >= 310 then
+      cms=140
+      return
+   end if
+   if valor <= 309 & valor >= 306 then
+      cms=139
+      return
+   end if
+   if valor <= 305 & valor >= 302 then
+      cms=138
+      return
+   end if
+   if valor <= 301 & valor >= 297 then
+      cms=137
+      return
+   end if
+   if valor <= 296 & valor >= 294 then
+      cms=136
+      return
+   end if
+   if valor <= 293 & valor >= 288 then
+      cms=135
+      return
+   end if
+   if valor <= 287 & valor >= 284 then
+      cms=134
+      return
+   end if
+   if valor <= 283 & valor >= 279 then
+      cms=133
+      return
+   end if
+   if valor <= 278 & valor >= 274 then
+      cms=132
+      return
+   end if
+   if valor <= 273 & valor >= 269 then
+      cms=131
+      return
+   end if
+   if valor <= 268 & valor >= 266 then
+      cms=130
+      return
+   end if
+   if valor <= 265 & valor >= 263 then
+      cms=129
+      return
+   end if
+   if valor <= 262 & valor >= 260 then
+      cms=128
+      return
+   end if
+   if valor <= 259 & valor >= 257 then
+      cms=127
+      return
+   end if
+   if valor <= 256 & valor >= 254 then
+      cms=126
+      return
+   end if
+   if valor <= 253 & valor >= 251 then
+      cms=125
+      return
+   end if
+   if valor <= 250 & valor >= 248 then
+      cms=124
+      return
+   end if
+   if valor <= 247 & valor >= 245 then
+      cms=123
+      return
+   end if
+   if valor <= 244 & valor >= 242 then
+      cms=122
+      return
+   end if
+   if valor <= 241 & valor >= 239 then
+      cms=121
+      return
+   end if
+   if valor <= 238 & valor >= 233 then
+      cms=120
+      return
+   end if
+   if valor <= 232 & valor >= 228 then
+      cms=119
+      return
+   end if
+   if valor <= 227 & valor >= 223 then
+      cms=118
+      return
+   end if
+   if valor <= 222 & valor >= 218 then
+      cms=117
+      return
+   end if
+   if valor <= 217 & valor >= 214 then
+      cms=116
+      return
+   end if
+   if valor <= 213 & valor >= 210 then
+      cms=115
+      return
+   end if
+   if valor <= 209 & valor >= 205 then
+      cms=114
+      return
+   end if
+   if valor <= 204 & valor >= 200 then
+      cms=113
+      return
+   end if
+   if valor <= 199 & valor >= 195 then
+      cms=112
+      return
+   end if
+   if valor <= 194 & valor >= 191 then
+      cms=111
+      return
+   end if
+   if valor <= 190 & valor >= 184 then
+      cms=110
+      return
+   end if
+   if valor == 183 then
+      cms=109
+      return
+   end if
+   if valor == 182 then
+      cms=108
+      return
+   end if
+   if valor == 181 then
+      cms=107
+      return
+   end if
+   if valor == 180 then
+      cms=106
+      return
+   end if
+   if valor == 179 then
+      cms=105
+      return
+   end if
+   if valor == 178 then
+      cms=104
+      return
+   end if
+   if valor == 177 then
+      cms=103
+      return
+   end if
+   if valor == 176 then
+      cms=102
+      return
+   end if
+   if valor == 175 then
+      cms=102
+      return
+   end if
+   if valor == 174 then
+      cms=101
+      return
+   end if
+   if valor <= 173 & valor >= 171 then
+      cms=100
+      return
+   end if
+   if valor <= 170 & valor >= 167 then
+      cms=99
+      return
+   end if
+   if valor <= 166 & valor >= 163 then
+      cms=98
+      return
+   end if
+   if valor <= 162 & valor >= 159 then
+      cms=97
+      return
+   end if
+   if valor <= 158 & valor >= 155 then
+      cms=96
+      return
+   end if
+   if valor <= 154 & valor >= 151 then
+      cms=95
+      return
+   end if
+   if valor <= 150 & valor >= 147 then
+      cms=94
+      return
+   end if
+   if valor <= 146 & valor >= 143 then
+      cms=93
+      return
+   end if
+   if valor <= 142 & valor >= 139 then
+      cms=92
+      return
+   end if
+   if valor <= 138 & valor >= 136 then
+      cms=91
+      return
+   end if
+   if valor <= 135 & valor >= 132 then
+      cms=90
+      return
+   end if
+   if valor <= 131 & valor >= 128 then
+      cms=89
+      return
+   end if
+   if valor <= 127 & valor >= 124 then
+      cms=88
+      return
+   end if
+   if valor <= 123 & valor >= 121 then
+      cms=87
+      return
+   end if
+   if valor <= 120 & valor >= 118 then
+      cms=86
+      return
+   end if
+   if valor <= 117 & valor >= 114 then
+      cms=85
+      return
+   end if
+   if valor <= 113 & valor >= 110 then
+      cms=84
+      return
+   end if
+   if valor <= 109 & valor >= 106 then
+      cms=83
+      return
+   end if
+   if valor <= 105 & valor >= 102 then
+      cms=82
+      return
+   end if
+   if valor <= 101 & valor >= 98 then
+      cms=81
+      return
+   end if
+   if valor <= 97 & valor >= 94 then
+      cms=80
+      return
+   end if
+   if valor <= 93 & valor >= 90 then
+      cms=79
+      return
+   end if
+   if valor <= 87 & valor >= 84 then
+      cms=78
+      return
+   end if
+   if valor <= 81 & valor >= 78 then
+      cms=77
+      return
+   end if
+   if valor <= 77 & valor >= 74 then
+      cms=76
+      return
+   end if
+   if valor <= 87 & valor >= 84 then
+      cms=75
+      return
+   end if
+   if valor <= 81 & valor >= 78 then
+      cms=74
+      return
+   end if
+   if valor <= 75 & valor >= 72 then
+      cms=73
+      return
+   end if
+   if valor <= 69 & valor >= 66 then
+      cms=72
+      return
+   end if
+   if valor <= 65 & valor >= 62 then
+      cms=71
+      return
+   end if
+   if valor <= 61 & valor >= 57 then
+      cms=70
+      return
+   end if
+   if valor <= 56 & valor >= 53 then
+      cms=69
+      return
+   end if
+   if valor <= 52 & valor >= 49 then
+      cms=68
+      return
+   end if
+   if valor <= 48 & valor >= 45 then
+      cms=67
+      return
+   end if
+   if valor <= 44 & valor >= 42 then
+      cms=66
+      return
+   end if
+   if valor <= 41 & valor >= 39 then
+      cms=65
+      return
+   end if
+   if valor <= 38 & valor >= 36 then
+      cms=64
+      return
+   end if
+   if valor <= 35 & valor >= 33 then
+      cms=63
+      return
+   end if
+   if valor <= 32 & valor >= 30 then
+      cms=62
+      return
+   end if
+   if valor <= 29 & valor >= 27 then
+      cms=61
+      return
+   end if
+   if valor <= 26 & valor >= 19 then
+      cms=60
+      return
+   end if
+   if valor <= 18 & valor >= 15 then
+      cms=59
+      return
+   end if
+   if valor <= 14 & valor >= 9 then
+      cms=58
+      return
+   end if
+   if valor <= 8 & valor >= 6 then
+      cms=57
+      return
+   end if
+
+   if valor <= 18 & valor >= 17 then
+      cms=56
+      return
+   end if
+   if valor <= 16 & valor >= 15 then
+      cms=55
+      return
+   end if
+   if valor <= 14 & valor >= 13 then
+      cms=54
+      return
+   end if
+   if valor <= 12 & valor >= 11 then
+      cms=54
+      return
+   end if
+
+   if valor <= 5 then
+      cms = 1         ; fuera de rango
+      return
+   end if
+end procedure

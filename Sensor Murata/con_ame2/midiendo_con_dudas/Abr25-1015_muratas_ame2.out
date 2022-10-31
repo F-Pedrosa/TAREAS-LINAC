@@ -1,0 +1,13 @@
+jal 2.4n (compiled Jun  2 2010)
+generating p-code
+0 errors, 0 warnings
+2513 tokens, 139563 chars; 4380 lines; 10 files
+generating PIC code pass 1
+generating PIC code pass 2
+writing result
+Code area: 4705 of 8192 used (words)
+
+Data area: 209 of 352 used
+Software stack available: 96 bytes
+Hardware stack depth 2 of 8
+
