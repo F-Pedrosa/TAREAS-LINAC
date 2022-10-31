@@ -1,0 +1,41 @@
+; Titilador de led con 12F629 para prueba electrónica en epoxi
+
+include 12f629
+
+pragma target clock    4_000_000                 ; oscillator frequency
+pragma target OSC      INTOSC_NOCLKOUT           ; internal oscillator
+pragma target WDT      DISABLED                  ; watchdog NO
+pragma target BROWNOUT DISABLED                  ; ain brownout reset
+pragma target MCLR     INTERNAL                  ; SIN reset
+
+enable_digital_io()                 -- make all pins digital I/O
+
+include delay                       -- library with delay procedures
+
+alias  led1       is pin_A1
+pin_A1_direction = OUTPUT
+
+alias  led2       is pin_A2
+pin_A2_direction = OUTPUT
+
+; Este código en ensamblador viene del ejemplo de uso de las JalLib para el 12F675
+; Y TIENE QUE ESTAR SIEMPRE PRESENTE.
+assembler
+  page call 0x3FF
+  bank movwf OSCCAL                ; valor de calibración de fábrica del oscilador interno
+end assembler
+
+
+led1 = OFF
+led2 = OFF
+
+
+forever loop
+   led1 = ON
+   led2 = OFF
+   delay_100ms(10)
+   led1 = OFF
+   led2 = ON
+   delay_100ms(10)
+end loop
+
