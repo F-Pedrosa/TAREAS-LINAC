@@ -1,0 +1,305 @@
+include 16f877a
+
+pragma target OSC HS
+pragma target clock 20_000_000
+-- no watchdog, no LVP
+pragma target WDT  disabled
+pragma target LVP  disabled
+enable_digital_io()
+include delay
+
+; -------------------------------
+; Configurar ADC...
+const bit ADC_HIGH_RESOLUTION = high
+; Número canales analógicos
+const byte ADC_NCHANNEL = 8     ; porque la ACELERO1 tiene todos sus canales analógicos usados
+; Sin referencias de tensión
+const byte ADC_NVREF = ADC_NO_EXT_VREF
+; Constante q fija la adquisición lo más rápido posible (~20 useg según hoja de datos)
+const ADC_MIN_TAD = 8
+; Librería ADC
+include adc
+; Inicialización de la misma
+adc_init()
+
+; I2C pines
+alias i2c_scl            is pin_c3
+alias i2c_scl_direction  is pin_c3_direction
+alias i2c_sda            is pin_c4
+alias i2c_sda_direction  is pin_c4_direction
+; constantes
+const word _i2c_bus_speed = 4 ;  400kHz      <---------- siempre verificar el funcionamiento con este valor!
+const bit _i2c_level = true   ; i2c levels (not SMB)
+; incluir e inicializar librería I2C (RTC y eeprom)
+include i2c_hardware
+i2c_initialize()
+
+
+alias testigo is pin_b7
+pin_b7_direction = output
+alias zumbador is pin_d7
+pin_d7_direction = output
+
+var byte digi4 = 0
+var byte digi3 = 0
+var byte digi2 = 0
+var byte digi1 = 0
+var byte digi0 = 0
+
+var byte anio = 0
+var byte mes = 0
+var byte dia = 0
+var byte hora = 0
+var byte minuto = 0
+var byte segundo = 0
+var word direccion = 0
+
+var word cronizador_milesimas = 0
+var byte segundo_inicial = 0
+
+; en estas variables quedan los valores analógicos adquiridos de los acelerómetros.
+var word valor_anl_x = 0
+var word valor_anl_y = 0
+var word valor_anl_z = 0
+
+; ========================================== INTERRUPCIÓN TIMER1 =================================
+; Los siguientes alias se agregan para corregir incompatibilidades de
+; nombres entre diferentes versiones de librarías (JalLib).
+alias TMR1IE is PIE1_TMR1IE
+alias TMR1if is PIR1_TMR1IF
+; ================================================================================================
+OPTION_REG = 0
+; Habilitar interrupciones de periféricos (entre ellos TIMER1)
+INTCON = 0b_1100_0000
+; Setear TMR1 en modo free run, con oscilador interno y sin prescaler
+T1CON = 0b0000_0101
+; TIMER1 deshabilitado al inicio
+TMR1IE = off
+; valores de inicialización correctos para Ttimer1 = 1 ms
+const byte InitTMR1H = 236
+const byte InitTMR1L = 120
+var bit Flag_tmr1 = false
+; rutina interrupción TMR1 propiamente dicha, que se ejecuta cada 1 msegs.
+procedure TMR1_ISR is
+  pragma interrupt
+  if TMR1if then
+     ; Resetear bandera
+     TMR1if = low
+     ; Reinicializar TMR1
+     asm clrf TMR1L
+     TMR1H = InitTMR1H
+     TMR1L = InitTMR1L
+     Flag_tmr1 = true
+     ; ----------------------
+     if cronizador_milesimas == 999 then
+       cronizador_milesimas = 0
+;       if segundo > 59 then
+;          segundo = 0
+;       else
+;          segundo = segundo + 1
+;       end if
+;     else
+
+       cronizador_milesimas = cronizador_milesimas + 1
+     end if
+     ; ----------------------
+  end if
+end procedure
+; ============================================================================================
+
+procedure word2digits( byte out digi4, byte out digi3, byte out digi2, byte out digi1, byte out digi0, word in numero ) is
+   var word dec_miles = 0
+   var word miles = 0
+   var word centena = 0
+   var byte decena = 0
+   dec_miles = numero/10000
+   digi4 = byte(dec_miles)
+   dec_miles = dec_miles * 10000
+   numero = numero - dec_miles
+   miles = numero / 1000
+   digi3 = byte(miles)
+   miles = miles * 1000
+   numero = numero - miles
+   centena = numero / 100
+   digi2 = byte(centena)
+   centena = digi2 * 100
+   numero = numero - centena
+   decena = byte(numero / 10)
+   digi1 = decena
+   decena = digi1 * 10
+   numero = numero - decena
+   digi0 = byte(numero)
+end procedure
+
+
+
+procedure leer_rtc ( byte in ad, byte out digi1, byte out digi0 ) is
+   var byte dato_rtc = 0
+   var byte loc = 0
+   var byte loc2 = 0
+   var bit resul = false
+   ;------------
+   I2C_start()
+   ; se envía la ID del RTC con LSB en 0...
+   resul = i2c_transmit_byte(0b1101_0000)
+   ; y luego el número de registro deseado...
+   resul = i2c_transmit_byte(ad)
+   I2C_stop()
+   ;------------
+   I2C_start()
+   ; con el LSB de la ID del RTC en 1, se pide una lectura...
+   resul = i2c_transmit_byte(0b1101_0001)
+   ; y se recibe el contenido del registro pedido antes...
+   dato_rtc = I2C_receive_byte( false )
+   I2C_stop()
+   ;------------
+   loc = dato_rtc
+   loc2 = dato_rtc
+   loc = loc & 0xF0    ; 0xF0 = 0b11110000, separa nibble alto
+   digi1 = loc / 16
+   digi0 = loc2 & 15   ; 15 = 0b00001111, separa nibble bajo
+end procedure
+
+procedure obtener_fecha_hora is
+   var byte digito1 = 0
+   var byte digito0 = 0
+
+   delay_1ms(5)
+
+   leer_rtc(6,digito1,digito0)
+   digito1 = digito1 * 10
+   anio = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(5,digito1,digito0)
+   digito1 = digito1 * 10
+   mes = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(4,digito1,digito0)
+   digito1 = digito1 * 10
+   dia = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(2,digito1,digito0)
+   digito1 = digito1 * 10
+   hora = digito1 + digito0
+   ; ---------------------------
+   leer_rtc(1,digito1,digito0)
+   digito1 = digito1 * 10
+   minuto = digito1 + digito0
+
+   ; ---------------------------
+   leer_rtc(0,digito1,digito0)
+   digito1 = digito1 * 10
+   segundo = digito1 + digito0
+
+
+end procedure
+
+procedure convertir_fecha_hora(dword out tiempo_leido) is
+
+      var byte dia_interno = 0
+     ; ATENCIÓN!!!
+     ; este algoritmo asume enero 31 días, febrero 28 (no considera años bisiestos), marzo 31, abril 30,
+     ; mayo 31, junio 30, julio 31, agosto 31, setiembre 30, octubre 31, noviembre 30, diciembre 31.
+
+     ; Al terminar el procedimiento en la variable tiempo queda el equivalente en segundos del
+     ; tiempo total transcurrido desde principio del año en curso.
+
+     tiempo_leido = 0
+
+;     tiempo_leido = tiempo_leido + segundo
+     tiempo_leido = segundo
+     tiempo_leido = tiempo_leido + dword(minuto * 60)
+     tiempo_leido = tiempo_leido + dword(hora) * 3600
+     dia_interno = dia - 1
+     tiempo_leido = tiempo_leido + dword(dia_interno) * 86400
+
+;     if mes == 2 then
+;        tiempo_leido = tiempo_leido + (31 * 86400)     ; los 31 días de enero
+;     elsif mes == 3 then
+;        tiempo_leido = tiempo_leido + (59 * 86400)     ; 31 enero + 28 febrero
+;     elsif mes == 4 then
+;        tiempo_leido = tiempo_leido + (90 * 86400)     ; 31 enero + 28 febrero + 31 marzo
+;     elsif mes == 5 then
+;        tiempo_leido = tiempo_leido + (120 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril
+;     elsif mes == 6 then
+;        tiempo_leido = tiempo_leido + (151 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo
+;     elsif mes == 7 then
+;        tiempo_leido = tiempo_leido + (181 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo + 30 junio
+;     elsif mes == 8 then
+;        tiempo_leido = tiempo_leido + (212 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo + 30 junio + 31 julio
+;     elsif mes == 9 then
+;        tiempo_leido = tiempo_leido + (243 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo + 30 junio + 31 julio + 31 agosto
+;     elsif mes == 10 then
+;        tiempo_leido = tiempo_leido + (273 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo + 30 junio + 31 julio + 31 agosto + 30 setiembre
+;     elsif mes == 11 then
+;        tiempo_leido = tiempo_leido + (304 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo + 30 junio + 31 julio + 31 agosto + 30 setiembre + 31 octubre
+;     elsif mes == 12 then
+;        tiempo_leido = tiempo_leido + (334 * 86400)    ; 31 enero + 28 febrero + 31 marzo + 30 abril + 31 mayo + 30 junio + 31 julio + 31 agosto + 30 setiembre + 31 octubre + 30 noviembre
+;     end if
+end procedure
+
+
+; ===============================================================================================
+
+; Bloque para sincronizar arranque interrupción Timer1 con la transición del registro de segundos del RTC
+leer_rtc(0,digi1,digi0)
+digi1 = digi1 * 10
+segundo_inicial = digi1 + digi0
+while segundo == segundo_inicial loop
+   leer_rtc(0,digi1,digi0)
+   digi1 = digi1 * 10
+   segundo = digi1 + digi0
+end loop
+; Ahora activar interrupción Timer1, estará aproximadamente en sincronía con el RTC.
+TMR1IE = on
+cronizador_milesimas = 0
+
+
+; para saber si el firm corre, desde afuera
+testigo = on
+zumbador = on
+delay_100ms(2)
+zumbador = off
+testigo = off
+
+
+var dword tiempo = 0
+var dword tiempo_anterior = 0
+var byte intervalo
+var word valor_mayor_x
+
+intervalo = 3
+
+forever loop
+
+   obtener_fecha_hora
+   convertir_fecha_hora(tiempo)
+   tiempo_anterior = tiempo
+
+   valor_mayor_x = adc_read(7)
+
+   while tiempo < tiempo_anterior + intervalo loop
+       valor_anl_x = adc_read(7)
+       delay_10us(20)
+
+       delay_100ms(1)
+
+    	 if valor_anl_x > valor_mayor_x then
+      		valor_mayor_x = valor_anl_x
+       end if
+
+       obtener_fecha_hora
+       convertir_fecha_hora(tiempo)
+   end loop
+
+   if valor_mayor_x > 350 then
+      testigo = on
+      zumbador = on
+      delay_1ms(50)
+      testigo = off
+      zumbador = off
+      valor_mayor_x = 0
+   end if
+
+end loop
+
